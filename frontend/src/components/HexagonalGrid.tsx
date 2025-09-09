@@ -181,16 +181,15 @@ const HexagonalGrid: React.FC = () => {
     const container = containerRef.current;
     const containerWidth = container.clientWidth;
     const containerHeight = container.clientHeight;
-    const hexSize = baseHexSize * zoom;
+    // Match spacing used in Hexagon positioning
+    const stepX = baseHexSize * 1.0 * zoom;
+    const stepY = baseHexSize * Math.sqrt(3) * 1.4 * zoom;
 
-    // Calculate the range of hexagons to render
-    const hexWidth = hexSize * 1.2; // Updated to match new spacing
-    const hexHeight = hexSize * Math.sqrt(3) * 1.2; // Updated to match new spacing
-
-    const startX = Math.floor((-pan.x) / hexWidth) - 2;
-    const endX = Math.ceil((-pan.x + containerWidth) / hexWidth) + 2;
-    const startY = Math.floor((-pan.y) / hexHeight) - 2;
-    const endY = Math.ceil((-pan.y + containerHeight) / hexHeight) + 2;
+    // Calculate the range of hexagons to render with some buffer
+    const startX = Math.floor((-pan.x) / stepX) - 3;
+    const endX = Math.ceil((-pan.x + containerWidth) / stepX) + 3;
+    const startY = Math.floor((-pan.y) / stepY) - 3;
+    const endY = Math.ceil((-pan.y + containerHeight) / stepY) + 3;
 
     const hexagons: Array<{ x: number; y: number }> = [];
     

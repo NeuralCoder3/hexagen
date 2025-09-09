@@ -15,6 +15,128 @@ app.use('/images', express.static(path.join(__dirname, '../images')));
 app.use('/thumbnails', express.static(path.join(__dirname, '../thumbnails')));
 app.use('/templates', express.static(path.join(__dirname, '../templates')));
 
+// --- Perlin noise implementation (deterministic, no external deps) ---
+// Adapted lightweight Perlin noise for 2D
+class Perlin2D {
+  private permutation: number[];
+  private p: number[];
+
+  constructor(seed: number = 1337) {
+    this.permutation = this.generatePermutation(seed);
+    this.p = new Array(512);
+    for (let i = 0; i < 512; i++) {
+      this.p[i] = this.permutation[i % 256];
+    }
+  }
+
+  private generatePermutation(seed: number): number[] {
+    const perm = Array.from({ length: 256 }, (_, i) => i);
+    // Simple LCG for reproducible shuffle
+    let s = seed >>> 0;
+    const rand = () => (s = (s * 1664525 + 1013904223) >>> 0) / 0xffffffff;
+    for (let i = 255; i > 0; i--) {
+      const j = Math.floor(rand() * (i + 1));
+      [perm[i], perm[j]] = [perm[j], perm[i]];
+    }
+    return perm;
+  }
+
+  private fade(t: number): number {
+    return t * t * t * (t * (t * 6 - 15) + 10);
+  }
+
+  private lerp(t: number, a: number, b: number): number {
+    return a + t * (b - a);
+  }
+
+  private grad(hash: number, x: number, y: number): number {
+    const h = hash & 3;
+    const u = h < 2 ? x : y;
+    const v = h < 2 ? y : x;
+    return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+  }
+
+  noise(x: number, y: number): number {
+    const X = Math.floor(x) & 255;
+    const Y = Math.floor(y) & 255;
+    const xf = x - Math.floor(x);
+    const yf = y - Math.floor(y);
+
+    const u = this.fade(xf);
+    const v = this.fade(yf);
+
+    const aa = this.p[this.p[X] + Y];
+    const ab = this.p[this.p[X] + Y + 1];
+    const ba = this.p[this.p[X + 1] + Y];
+    const bb = this.p[this.p[X + 1] + Y + 1];
+
+    const x1 = this.lerp(
+      u,
+      this.grad(aa, xf, yf),
+      this.grad(ba, xf - 1, yf)
+    );
+    const x2 = this.lerp(
+      u,
+      this.grad(ab, xf, yf - 1),
+      this.grad(bb, xf - 1, yf - 1)
+    );
+
+    // Scale to [0,1]
+    return (this.lerp(v, x1, x2) + 1) / 2;
+  }
+}
+
+// Terrain height function with octaves
+const perlin = new Perlin2D(90210);
+function getHeightAt(x: number, y: number): number {
+  const offset_x = 14;
+  const offset_y = 24;
+  x += offset_x;
+  y += offset_y;
+  // Scale world coordinates to noise space
+  const baseFrequency = 0.05; // larger -> more roughness
+  let amplitude = 1;
+  let frequency = baseFrequency;
+  let maxAmplitude = 0;
+  let value = 0;
+  const octaves = 4;
+  const persistence = 0.5;
+
+  for (let i = 0; i < octaves; i++) {
+    value += perlin.noise(x * frequency, y * frequency) * amplitude;
+    maxAmplitude += amplitude;
+    amplitude *= persistence;
+    frequency *= 2;
+  }
+
+  return value / maxAmplitude; // normalize to [0,1]
+}
+
+// Map height to biome template file
+function getBiomeTemplatePath(height: number): { path: string; contentType: string } | null {
+  // thresholds: water < sand < grass < mountain < snow
+  const templatesDir = path.join(__dirname, '../templates');
+  const entries: Array<{ threshold: number; file: string }> = [
+    { threshold: 0.50, file: 'water.png' },
+    { threshold: 0.51, file: 'sand.png' },
+    // here is gras
+    { threshold: 0.60, file: 'gras.png' },
+    { threshold: 0.65, file: 'mountain.png' },
+    { threshold: 1.75, file: 'snow.png' },
+  ];
+
+  for (const entry of entries) {
+    if (height <= entry.threshold) {
+      const full = path.join(templatesDir, entry.file);
+      if (fs.existsSync(full)) {
+        return { path: full, contentType: 'image/png' };
+      }
+      break; // if missing, fall back below
+    }
+  }
+  return null;
+}
+
 // Hexagon endpoint
 app.get('/api/hexagon/:x/:y', (req, res) => {
   const { x, y } = req.params;
@@ -64,25 +186,31 @@ app.get('/api/hexagon/:x/:y', (req, res) => {
       res.setHeader('Content-Type', 'image/svg+xml');
       res.sendFile(imagePathSvg);
     } else {
-      // Return template hexagon image
-      const templatePathJpg = path.join(__dirname, '../templates', 'hexagon_template.jpg');
-      const templatePathPng = path.join(__dirname, '../templates', 'hexagon_template.png');
-      const templatePathSvg = path.join(__dirname, '../templates', 'hexagon_template.svg');
-      
-      if (fs.existsSync(templatePathJpg)) {
-        res.setHeader('Content-Type', 'image/jpeg');
-        res.sendFile(templatePathJpg);
-      } else if (fs.existsSync(templatePathPng)) {
-        res.setHeader('Content-Type', 'image/png');
-        res.sendFile(templatePathPng);
-      } else if (fs.existsSync(templatePathSvg)) {
-        res.setHeader('Content-Type', 'image/svg+xml');
-        res.sendFile(templatePathSvg);
+      // No specific image found: compute biome by Perlin noise and return its template
+      const height = getHeightAt(xNum, yNum);
+      const biome = getBiomeTemplatePath(height);
+      if (biome) {
+        res.setHeader('Content-Type', biome.contentType);
+        res.sendFile(biome.path);
       } else {
-        // If no template exists, create a simple SVG hexagon
-        const svgHexagon = createSVGHexagon(xNum, yNum);
-        res.setHeader('Content-Type', 'image/svg+xml');
-        res.send(svgHexagon);
+        // Fallback to legacy hexagon template if biome assets are missing
+        const templatePathJpg = path.join(__dirname, '../templates', 'hexagon_template.jpg');
+        const templatePathPng = path.join(__dirname, '../templates', 'hexagon_template.png');
+        const templatePathSvg = path.join(__dirname, '../templates', 'hexagon_template.svg');
+        if (fs.existsSync(templatePathJpg)) {
+          res.setHeader('Content-Type', 'image/jpeg');
+          res.sendFile(templatePathJpg);
+        } else if (fs.existsSync(templatePathPng)) {
+          res.setHeader('Content-Type', 'image/png');
+          res.sendFile(templatePathPng);
+        } else if (fs.existsSync(templatePathSvg)) {
+          res.setHeader('Content-Type', 'image/svg+xml');
+          res.sendFile(templatePathSvg);
+        } else {
+          const svgHexagon = createSVGHexagon(xNum, yNum);
+          res.setHeader('Content-Type', 'image/svg+xml');
+          res.send(svgHexagon);
+        }
       }
     }
   } catch (error) {
