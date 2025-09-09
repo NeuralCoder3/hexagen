@@ -8,6 +8,10 @@ const execAsync = promisify(exec);
 // Import terrain functions from the main backend
 import { getHeightAt, getBiomeTemplatePath } from '../src/terrain';
 import { HexagonCropper } from './cropHexagons';
+import { extractCenterHexagon, DEFAULT_HEX_SIZE, DEFAULT_CANVAS_SIZE } from './utils/extractCenterHexagon';
+
+const hexSize = DEFAULT_HEX_SIZE; // Base hexagon size (matches frontend baseHexSize)
+const canvasSize = DEFAULT_CANVAS_SIZE;
 
 // Get hexagon image path (specific image, biome template, or fallback)
 function getHexagonImagePath(x: number, y: number, noise: boolean): string {
@@ -59,8 +63,8 @@ function getHexagonNeighbors(x: number, y: number): Array<{ x: number; y: number
 
 // Generate coordinate image
 async function generateCoordinateImage(centerX: number, centerY: number, outputPath: string): Promise<void> {
-  const hexSize = 220; // Base hexagon size (matches frontend baseHexSize)
-  const canvasSize = 512;
+  const hexSize = DEFAULT_HEX_SIZE;
+  const canvasSize = DEFAULT_CANVAS_SIZE;
   
   // Create temporary directory for intermediate files
   const tempDir = path.join(__dirname, '../temp');
@@ -144,14 +148,16 @@ async function main() {
   const args = process.argv.slice(2);
   
   if (args.length < 2) {
-    console.log('Usage: tsx generateCoordinateImage.ts <x> <y> [output_path]');
+    console.log('Usage: tsx generateCoordinateImage.ts <x> <y> [output_path] [--extract]');
     console.log('Example: tsx generateCoordinateImage.ts 0 0 coordinate_0_0.png');
+    console.log('Example: tsx generateCoordinateImage.ts 0 0 coordinate_0_0.png --extract');
     process.exit(1);
   }
   
   const x = parseInt(args[0]);
   const y = parseInt(args[1]);
   const outputPath = args[2] || `coordinate_${x}_${y}.png`;
+  const shouldExtract = args.includes('--extract');
   
   if (isNaN(x) || isNaN(y)) {
     console.error('Invalid coordinates. Please provide valid numbers for x and y.');
@@ -161,6 +167,12 @@ async function main() {
   try {
     await generateCoordinateImage(x, y, outputPath);
     console.log('Coordinate image generated successfully!');
+    
+    if (shouldExtract) {
+      const centerHexPath = outputPath.replace('.png', '_center.png');
+      await extractCenterHexagon(outputPath, centerHexPath, hexSize, canvasSize);
+      console.log('Center hexagon extracted successfully!');
+    }
   } catch (error) {
     console.error('Error generating coordinate image:', error);
     process.exit(1);

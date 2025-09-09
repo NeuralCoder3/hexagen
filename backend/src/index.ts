@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { getHeightAt, getBiomeTemplatePath } from './terrain';
 import { generateCoordinateImage } from '../scripts/generateCoordinateImage';
+import { DEFAULT_HEX_SIZE, DEFAULT_CANVAS_SIZE, extractCenterHexagon } from '../scripts/utils/extractCenterHexagon';
 import dotenv from 'dotenv';
 
 // Load environment variables
@@ -456,8 +457,20 @@ app.post('/api/generate-tile', async (req, res) => {
       const imageBuffer = await imageResponse.arrayBuffer();
       
       // Save the image
-      const finalImagePath = path.join(imagesDir, `${xNum}_${yNum}.png`);
+      let finalImagePath = path.join(imagesDir, `${xNum}_${yNum}_org.png`);
       fs.writeFileSync(finalImagePath, Buffer.from(imageBuffer));
+
+      // Extract center hexagon from the generated image
+      try {
+        const centerHexPath = path.join(imagesDir, `${xNum}_${yNum}.png`);
+        await extractCenterHexagon(finalImagePath, centerHexPath, 2*DEFAULT_HEX_SIZE, 2*DEFAULT_CANVAS_SIZE);
+        fs.unlinkSync(finalImagePath);
+        finalImagePath = centerHexPath;
+        console.log(`Center hexagon extracted to ${centerHexPath}`);
+      } catch (extractError) {
+        console.error('Error extracting center hexagon:', extractError);
+        // Don't fail the whole request if extraction fails
+      }
       
       // Generate thumbnail
       const { exec } = require('child_process');
