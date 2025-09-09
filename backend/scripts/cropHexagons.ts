@@ -59,11 +59,14 @@ class HexagonCropper {
     
     // Create a mask for the hexagon shape
     const maskPath = path.join("templates", "mask.png");
+    const rescaledPath = path.join("temp", "rescaled.png");
     
     try {
       // Apply mask and crop
-      const command = `magick "${inputPath}" "${maskPath}" -alpha off -compose copyopacity -composite "${outputPath}"`;
+      await execAsync(`magick "${inputPath}" -resize 512x512 "${rescaledPath}"`);
+      const command = `magick "${rescaledPath}" "${maskPath}" -alpha off -compose copyopacity -composite "${outputPath}"`;
       await execAsync(command);
+      fs.unlinkSync(rescaledPath);
     } catch (error) {
       throw error;
     }

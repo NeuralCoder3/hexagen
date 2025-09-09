@@ -470,15 +470,23 @@ app.post('/api/generate-tile', async (req, res) => {
       } catch (extractError) {
         console.error('Error extracting center hexagon:', extractError);
         // Don't fail the whole request if extraction fails
+        // Keep the original image if extraction fails
+        finalImagePath = path.join(imagesDir, `${xNum}_${yNum}_org.png`);
       }
       
       // Generate thumbnail
-      const { exec } = require('child_process');
-      const { promisify } = require('util');
-      const execAsync = promisify(exec);
-      
-      const thumbnailPath = path.join(__dirname, '../thumbnails', `${xNum}_${yNum}.jpg`);
-      await execAsync(`magick "${finalImagePath}" -resize 100x100 "${thumbnailPath}"`);
+      try {
+        const { exec } = require('child_process');
+        const { promisify } = require('util');
+        const execAsync = promisify(exec);
+        
+        const thumbnailPath = path.join(__dirname, '../thumbnails', `${xNum}_${yNum}.jpg`);
+        await execAsync(`magick "${finalImagePath}" -resize 100x100 "${thumbnailPath}"`);
+        console.log(`Thumbnail generated at ${thumbnailPath}`);
+      } catch (thumbnailError) {
+        console.error('Error generating thumbnail:', thumbnailError);
+        // Don't fail the whole request if thumbnail generation fails
+      }
       
       // Clean up temp files
       if (permanentImagePath && fs.existsSync(permanentImagePath)) {
