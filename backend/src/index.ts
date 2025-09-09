@@ -3,6 +3,11 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { getHeightAt, getBiomeTemplatePath } from './terrain';
+import { generateCoordinateImage } from '../scripts/generateCoordinateImage';
+import dotenv from 'dotenv';
+
+// Load environment variables
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -17,9 +22,9 @@ app.use('/thumbnails', express.static(path.join(__dirname, '../thumbnails')));
 app.use('/templates', express.static(path.join(__dirname, '../templates')));
 
 // Hexagon endpoint
-app.get('/api/hexagon/:x/:y', (req, res) => {
+app.get('/api/hexagon/:x/:y', async (req, res) => {
   const { x, y } = req.params;
-  const { thumbnail } = req.query;
+  const { thumbnail, checkExists } = req.query;
   
   try {
     const xNum = parseInt(x);
@@ -27,6 +32,18 @@ app.get('/api/hexagon/:x/:y', (req, res) => {
     
     if (isNaN(xNum) || isNaN(yNum)) {
       return res.status(400).json({ error: 'Invalid coordinates' });
+    }
+    
+    // Check if specific hexagon image exists (try .jpg first, then .png, then .svg)
+    const imagePathJpg = path.join(__dirname, '../images', `${xNum}_${yNum}.jpg`);
+    const imagePathPng = path.join(__dirname, '../images', `${xNum}_${yNum}.png`);
+    const imagePathSvg = path.join(__dirname, '../images', `${xNum}_${yNum}.svg`);
+    
+    const hasCustomImage = fs.existsSync(imagePathJpg) || fs.existsSync(imagePathPng) || fs.existsSync(imagePathSvg);
+    
+    // If checkExists is true, return whether tile exists
+    if (checkExists === 'true') {
+      return res.json({ exists: hasCustomImage });
     }
     
     // Check if thumbnail is requested (default behavior)
@@ -45,12 +62,55 @@ app.get('/api/hexagon/:x/:y', (req, res) => {
         res.setHeader('Content-Type', 'image/svg+xml');
         return res.sendFile(thumbnailPathSvg);
       }
+      
+      // Thumbnail doesn't exist, but check if we have a full image to generate thumbnail from
+      if (hasCustomImage) {
+        console.log(`Thumbnail missing for ${xNum}_${yNum}, generating on-the-fly...`);
+        try {
+          const { exec } = require('child_process');
+          const { promisify } = require('util');
+          const execAsync = promisify(exec);
+          
+          // Determine which full image to use
+          let sourceImagePath = null;
+          if (fs.existsSync(imagePathJpg)) {
+            sourceImagePath = imagePathJpg;
+            console.log(`Using JPG source: ${imagePathJpg}`);
+          } else if (fs.existsSync(imagePathPng)) {
+            sourceImagePath = imagePathPng;
+            console.log(`Using PNG source: ${imagePathPng}`);
+          } else if (fs.existsSync(imagePathSvg)) {
+            sourceImagePath = imagePathSvg;
+            console.log(`Using SVG source: ${imagePathSvg}`);
+          }
+          
+          if (sourceImagePath) {
+            // Ensure thumbnails directory exists
+            const thumbnailsDir = path.join(__dirname, '../thumbnails');
+            if (!fs.existsSync(thumbnailsDir)) {
+              fs.mkdirSync(thumbnailsDir, { recursive: true });
+              console.log('Created thumbnails directory');
+            }
+            
+            console.log(`Generating thumbnail: ${thumbnailPathJpg}`);
+            // Generate thumbnail
+            await execAsync(`magick "${sourceImagePath}" -resize 100x100 "${thumbnailPathJpg}"`);
+            console.log(`Thumbnail generated successfully: ${thumbnailPathJpg}`);
+            
+            // Serve the newly generated thumbnail
+            res.setHeader('Content-Type', 'image/jpeg');
+            return res.sendFile(thumbnailPathJpg);
+          } else {
+            console.log('No source image found for thumbnail generation');
+          }
+        } catch (error) {
+          console.error('Error generating thumbnail on-the-fly:', error);
+          // Fall through to serve full image or biome template
+        }
+      } else {
+        console.log(`No custom image found for ${xNum}_${yNum}, skipping thumbnail generation`);
+      }
     }
-    
-    // Check if specific hexagon image exists (try .jpg first, then .png, then .svg)
-    const imagePathJpg = path.join(__dirname, '../images', `${xNum}_${yNum}.jpg`);
-    const imagePathPng = path.join(__dirname, '../images', `${xNum}_${yNum}.png`);
-    const imagePathSvg = path.join(__dirname, '../images', `${xNum}_${yNum}.svg`);
     
     if (fs.existsSync(imagePathJpg)) {
       // Return the specific hexagon JPG image
@@ -111,6 +171,47 @@ async function resolveHexImage(xNum: number, yNum: number, wantThumbnail: boolea
       return { buffer: fs.readFileSync(thumbnailPathPng), contentType: 'image/png' };
     } else if (fs.existsSync(thumbnailPathSvg)) {
       return { buffer: fs.readFileSync(thumbnailPathSvg), contentType: 'image/svg+xml' };
+    }
+    
+    // Thumbnail doesn't exist, try to generate on-the-fly
+    const imagePathJpg = path.join(__dirname, '../images', `${xNum}_${yNum}.jpg`);
+    const imagePathPng = path.join(__dirname, '../images', `${xNum}_${yNum}.png`);
+    const imagePathSvg = path.join(__dirname, '../images', `${xNum}_${yNum}.svg`);
+    const hasCustomImage = fs.existsSync(imagePathJpg) || fs.existsSync(imagePathPng) || fs.existsSync(imagePathSvg);
+    
+    if (hasCustomImage) {
+      try {
+        const { exec } = require('child_process');
+        const { promisify } = require('util');
+        const execAsync = promisify(exec);
+        
+        // Determine which full image to use
+        let sourceImagePath = null;
+        if (fs.existsSync(imagePathJpg)) {
+          sourceImagePath = imagePathJpg;
+        } else if (fs.existsSync(imagePathPng)) {
+          sourceImagePath = imagePathPng;
+        } else if (fs.existsSync(imagePathSvg)) {
+          sourceImagePath = imagePathSvg;
+        }
+        
+        if (sourceImagePath) {
+          // Ensure thumbnails directory exists
+          const thumbnailsDir = path.join(__dirname, '../thumbnails');
+          if (!fs.existsSync(thumbnailsDir)) {
+            fs.mkdirSync(thumbnailsDir, { recursive: true });
+          }
+          
+          // Generate thumbnail
+          await execAsync(`magick "${sourceImagePath}" -resize 100x100 "${thumbnailPathJpg}"`);
+          
+          // Return the newly generated thumbnail
+          return { buffer: fs.readFileSync(thumbnailPathJpg), contentType: 'image/jpeg' };
+        }
+      } catch (error) {
+        console.error(`Error generating thumbnail for ${xNum}_${yNum}:`, error);
+        // Fall through to serve full image
+      }
     }
   }
 
@@ -221,6 +322,194 @@ app.post('/api/crop-hexagons', async (req, res) => {
   } catch (error) {
     console.error('Error cropping hexagons:', error);
     res.status(500).json({ error: 'Failed to crop hexagons' });
+  }
+});
+
+// Generate image for a tile endpoint
+app.post('/api/generate-tile', async (req, res) => {
+  // Declare variables at function scope for cleanup
+  let permanentImagePath: string | null = null;
+  let jpgImagePath: string | null = null;
+  
+  try {
+    console.log('Request body:', req.body);
+    console.log('Request headers:', req.headers);
+    
+    const { x, y, prompt } = req.body;
+    
+    if (x === undefined || x === null || y === undefined || y === null || !prompt) {
+      console.log('Missing fields - x:', x, 'y:', y, 'prompt:', prompt);
+      return res.status(400).json({ error: 'Missing required fields: x, y, prompt' });
+    }
+    
+    const xNum = parseInt(x);
+    const yNum = parseInt(y);
+    
+    if (isNaN(xNum) || isNaN(yNum)) {
+      return res.status(400).json({ error: 'Invalid coordinates' });
+    }
+    
+    // Check if tile already exists
+    const imagesDir = path.join(__dirname, '../images');
+    const imagePathJpg = path.join(imagesDir, `${xNum}_${yNum}.jpg`);
+    const imagePathPng = path.join(imagesDir, `${xNum}_${yNum}.png`);
+    const imagePathSvg = path.join(imagesDir, `${xNum}_${yNum}.svg`);
+    
+    if (fs.existsSync(imagePathJpg) || fs.existsSync(imagePathPng) || fs.existsSync(imagePathSvg)) {
+      return res.status(409).json({ error: 'Tile already exists' });
+    }
+    
+    // Generate coordinate image for the tile in a permanent location (outside temp dir)
+    permanentImagePath = path.join(__dirname, '../coordinate_images', `coordinate_${xNum}_${yNum}.png`);
+    
+    // Ensure the coordinate_images directory exists
+    const coordinateImagesDir = path.dirname(permanentImagePath);
+    if (!fs.existsSync(coordinateImagesDir)) {
+      fs.mkdirSync(coordinateImagesDir, { recursive: true });
+    }
+    
+    await generateCoordinateImage(xNum, yNum, permanentImagePath);
+    
+    // Convert PNG to JPG to match curl command format
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const execAsync = promisify(exec);
+    
+    jpgImagePath = permanentImagePath.replace('.png', '.jpg');
+    await execAsync(`magick "${permanentImagePath}" "${jpgImagePath}"`);
+    
+    // Prepare form data for API request
+    const FormData = require('form-data');
+    const formData = new FormData();
+    formData.append('prompt', `${prompt}, isometric, illustration, cell shading`);
+    formData.append('model', 'black-forest-labs/flux-krea-dev');
+    formData.append('strength', '0.85');
+    
+    // Add the coordinate image from permanent location (JPG format)
+    const imageBuffer = fs.readFileSync(jpgImagePath);
+    formData.append('image[]', imageBuffer, `coordinate_${xNum}_${yNum}.jpg`);
+    
+    // Add mask file (convert to JPG)
+    const maskPath = path.join(__dirname, '../templates', 'mask.png');
+    if (fs.existsSync(maskPath)) {
+      const maskJpgPath = path.join(__dirname, '../templates', 'mask.jpg');
+      await execAsync(`magick "${maskPath}" "${maskJpgPath}"`);
+      const maskBuffer = fs.readFileSync(maskJpgPath);
+      formData.append('mask[]', maskBuffer, 'mask.jpg');
+    }
+    
+    // Make API request
+    const apiKey = process.env.IMAGEROUTER_API_KEY;
+    console.log('API Key exists:', !!apiKey);
+    console.log('API Key length:', apiKey ? apiKey.length : 0);
+    
+    if (!apiKey) {
+      return res.status(500).json({ error: 'API key not configured' });
+    }
+    
+    console.log('Making API request to imagerouter.io...');
+    console.log('Form data fields:');
+    console.log('- prompt:', `${prompt}, isometric, illustration, cell shading`);
+    console.log('- model:', 'black-forest-labs/flux-krea-dev');
+    console.log('- strength:', '0.85');
+    console.log('- image file:', `coordinate_${xNum}_${yNum}.jpg`);
+    console.log('- mask file:', 'mask.jpg');
+    
+    const axios = require('axios');
+    const response = await axios.post('https://api.imagerouter.io/v1/openai/images/edits', formData, {
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        ...formData.getHeaders()
+      }
+    });
+    
+    console.log('API Response status:', response.status);
+    console.log('API Response headers:', response.headers);
+    console.log('API Response body:', response.data);
+    
+    const data = response.data;
+    
+    // Log the response
+    const logPath = path.join(__dirname, '../logs', 'image_generation.log');
+    const logDir = path.dirname(logPath);
+    if (!fs.existsSync(logDir)) {
+      fs.mkdirSync(logDir, { recursive: true });
+    }
+    
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      coordinates: { x: xNum, y: yNum },
+      prompt,
+      response: data,
+      success: response.status >= 200 && response.status < 300
+    };
+    
+    fs.appendFileSync(logPath, JSON.stringify(logEntry) + '\n');
+    
+    if (response.status >= 400) {
+      return res.status(500).json({ error: 'Image generation failed', details: data });
+    }
+    
+    // Download the generated image
+    if (data.data && data.data[0] && data.data[0].url) {
+      const imageResponse = await fetch(data.data[0].url);
+      const imageBuffer = await imageResponse.arrayBuffer();
+      
+      // Save the image
+      const finalImagePath = path.join(imagesDir, `${xNum}_${yNum}.png`);
+      fs.writeFileSync(finalImagePath, Buffer.from(imageBuffer));
+      
+      // Generate thumbnail
+      const { exec } = require('child_process');
+      const { promisify } = require('util');
+      const execAsync = promisify(exec);
+      
+      const thumbnailPath = path.join(__dirname, '../thumbnails', `${xNum}_${yNum}.jpg`);
+      await execAsync(`magick "${finalImagePath}" -resize 100x100 "${thumbnailPath}"`);
+      
+      // Clean up temp files
+      if (permanentImagePath && fs.existsSync(permanentImagePath)) {
+        fs.unlinkSync(permanentImagePath);
+      }
+      if (jpgImagePath && fs.existsSync(jpgImagePath)) {
+        fs.unlinkSync(jpgImagePath);
+      }
+      const maskJpgPath = path.join(__dirname, '../templates', 'mask.jpg');
+      if (fs.existsSync(maskJpgPath)) {
+        fs.unlinkSync(maskJpgPath);
+      }
+      
+      res.json({ 
+        success: true, 
+        message: 'Image generated successfully',
+        coordinates: { x: xNum, y: yNum },
+        cost: data.cost,
+        latency: data.latency
+      });
+    } else {
+      return res.status(500).json({ error: 'No image URL in response' });
+    }
+    
+  } catch (error) {
+    console.error('Error generating tile:', error);
+    
+    // Clean up temp files on error
+    try {
+      if (permanentImagePath && fs.existsSync(permanentImagePath)) {
+        fs.unlinkSync(permanentImagePath);
+      }
+      if (jpgImagePath && fs.existsSync(jpgImagePath)) {
+        fs.unlinkSync(jpgImagePath);
+      }
+      const maskJpgPath = path.join(__dirname, '../templates', 'mask.jpg');
+      if (fs.existsSync(maskJpgPath)) {
+        fs.unlinkSync(maskJpgPath);
+      }
+    } catch (cleanupError) {
+      console.error('Error cleaning up temp files:', cleanupError);
+    }
+    
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

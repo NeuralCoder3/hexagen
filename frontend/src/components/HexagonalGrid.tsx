@@ -21,6 +21,9 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc }) => {
   const [fullImageUrl, setFullImageUrl] = useState<string>('');
   const [isDragging, setIsDragging] = useState(false);
   const [dragStartPos, setDragStartPos] = useState<{ x: number; y: number } | null>(null);
+  const [showGenerateForm, setShowGenerateForm] = useState(false);
+  const [generatePrompt, setGeneratePrompt] = useState<string>('');
+  const [isGenerating, setIsGenerating] = useState(false);
 
   useEffect(() => {
     if (thumbnailSrc) {
@@ -35,17 +38,62 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc }) => {
     // Only open popup if it wasn't a drag operation
     if (!isDragging) {
       try {
-        // Fetch full image for popup (explicitly request full image)
-        const response = await fetch(`/api/hexagon/${x}/${y}?thumbnail=false`);
-        if (response.ok) {
-          const blob = await response.blob();
-          const url = URL.createObjectURL(blob);
-          setFullImageUrl(url);
-          setShowFullImage(true);
+        // First check if tile exists
+        const checkResponse = await fetch(`/api/hexagon/${x}/${y}?checkExists=true`);
+        const checkData = await checkResponse.json();
+        
+        if (checkData.exists) {
+          // Tile exists, fetch full image for popup
+          const response = await fetch(`/api/hexagon/${x}/${y}?thumbnail=false`);
+          if (response.ok) {
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            setFullImageUrl(url);
+            setShowFullImage(true);
+          }
+        } else {
+          // Tile doesn't exist, show generation form
+          setShowGenerateForm(true);
         }
       } catch (error) {
-        console.error('Error fetching full hexagon image:', error);
+        console.error('Error checking/fetching hexagon:', error);
       }
+    }
+  };
+
+  const handleGenerateTile = async () => {
+    if (!generatePrompt.trim()) return;
+    
+    setIsGenerating(true);
+    try {
+      const response = await fetch('/api/generate-tile', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          x: x,
+          y: y,
+          prompt: generatePrompt
+        })
+      });
+
+      const data = await response.json();
+      
+      if (response.ok) {
+        // Success - refresh the image
+        setShowGenerateForm(false);
+        setGeneratePrompt('');
+        // Refresh the thumbnail cache by triggering a re-fetch
+        window.location.reload();
+      } else {
+        alert(`Error: ${data.error}`);
+      }
+    } catch (error) {
+      console.error('Error generating tile:', error);
+      alert('Error generating tile');
+    } finally {
+      setIsGenerating(false);
     }
   };
 
@@ -80,6 +128,11 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc }) => {
       URL.revokeObjectURL(fullImageUrl);
       setFullImageUrl('');
     }
+  };
+
+  const closeGenerateForm = () => {
+    setShowGenerateForm(false);
+    setGeneratePrompt('');
   };
 
   // Calculate hexagon position (centered on 0,0) - adjusted spacing
@@ -134,6 +187,41 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc }) => {
               />
               <div className="modal-coords">
                 Hexagon at {x}, {y}
+              </div>
+            </div>
+          </div>
+        ),
+        document.body
+      )}
+
+      {/* Generate Tile Modal */}
+      {showGenerateForm && createPortal(
+        (
+          <div className="image-modal-overlay" onClick={closeGenerateForm}>
+            <div className="image-modal-content" onClick={(e) => e.stopPropagation()}>
+              <button className="modal-close" onClick={closeGenerateForm}>×</button>
+              <div className="generate-form">
+                <h3>Generate Tile at ({x}, {y})</h3>
+                <p>This tile doesn't exist yet. Enter a prompt to generate it:</p>
+                <textarea
+                  value={generatePrompt}
+                  onChange={(e) => setGeneratePrompt(e.target.value)}
+                  placeholder="Describe what you want to see in this tile..."
+                  className="generate-prompt"
+                  rows={4}
+                />
+                <div className="generate-buttons">
+                  <button 
+                    onClick={handleGenerateTile}
+                    disabled={!generatePrompt.trim() || isGenerating}
+                    className="generate-button"
+                  >
+                    {isGenerating ? 'Generating...' : 'Generate Tile'}
+                  </button>
+                  <button onClick={closeGenerateForm} className="cancel-button">
+                    Cancel
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -195,6 +283,16 @@ const HexagonalGrid: React.FC = () => {
 
   // Batch fetch thumbnails for currently visible hexes
   useEffect(() => {
+    // Clear cache when switching between thumbnail/full image modes
+    const requestThumbnails = zoom <= 4.0;
+    const cacheKey = requestThumbnails ? 'thumbnail' : 'full';
+    
+    // If we're switching modes, clear the cache
+    if (thumbnailCache.get('_mode') !== cacheKey) {
+      thumbnailCache.clear();
+      thumbnailCache.set('_mode', cacheKey);
+    }
+    
     const missing = visibleHexagons.filter(({ x, y }) => !thumbnailCache.has(`${x}_${y}`));
     if (missing.length === 0) return;
 
@@ -214,10 +312,12 @@ const HexagonalGrid: React.FC = () => {
 
       const launch = async (chunkIndex: number) => {
         const coords = chunks[chunkIndex].map(({ x, y }) => ({ x, y }));
+        // Request full images when zoom > 400% (4.0), thumbnails otherwise
+        const requestThumbnails = zoom <= 4.0;
         const res = await fetch('/api/hexagons/batch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ coords, thumbnail: true }),
+          body: JSON.stringify({ coords, thumbnail: requestThumbnails }),
           signal: controller.signal,
         });
         if (!res.ok) return;
@@ -255,7 +355,7 @@ const HexagonalGrid: React.FC = () => {
       cancelled = true;
       controller.abort();
     };
-  }, [visibleHexagons, thumbnailCache]);
+  }, [visibleHexagons, thumbnailCache, zoom]);
 
   // Handle mouse wheel for zooming
   const handleWheel = useCallback((e: WheelEvent) => {

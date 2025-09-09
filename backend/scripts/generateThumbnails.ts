@@ -53,7 +53,7 @@ class ThumbnailGenerator {
 
   private async createThumbnail(inputPath: string, outputPath: string, size: number): Promise<void> {
     // Use ImageMagick to create thumbnail
-    const command = `magick "${inputPath}" -resize ${size}x${size} -quality 85 "${outputPath}"`;
+    const command = `magick "${inputPath}" -resize ${size}x${size} "${outputPath}"`;
     
     try {
       await execAsync(command);
