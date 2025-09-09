@@ -8,7 +8,7 @@ const PORT = process.env.PORT || 3001;
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 
 // Serve static files from images, thumbnails, and templates directories
 app.use('/images', express.static(path.join(__dirname, '../images')));
@@ -215,6 +215,77 @@ app.get('/api/hexagon/:x/:y', (req, res) => {
     }
   } catch (error) {
     console.error('Error serving hexagon:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Helper to resolve a single hex image (thumbnail or full) into a Buffer and content type
+async function resolveHexImage(xNum: number, yNum: number, wantThumbnail: boolean): Promise<{ buffer: Buffer; contentType: string } | null> {
+  // Thumbnail preference
+  if (wantThumbnail) {
+    const thumbnailPathJpg = path.join(__dirname, '../thumbnails', `${xNum}_${yNum}.jpg`);
+    const thumbnailPathPng = path.join(__dirname, '../thumbnails', `${xNum}_${yNum}.png`);
+    const thumbnailPathSvg = path.join(__dirname, '../thumbnails', `${xNum}_${yNum}.svg`);
+    if (fs.existsSync(thumbnailPathJpg)) {
+      return { buffer: fs.readFileSync(thumbnailPathJpg), contentType: 'image/jpeg' };
+    } else if (fs.existsSync(thumbnailPathPng)) {
+      return { buffer: fs.readFileSync(thumbnailPathPng), contentType: 'image/png' };
+    } else if (fs.existsSync(thumbnailPathSvg)) {
+      return { buffer: fs.readFileSync(thumbnailPathSvg), contentType: 'image/svg+xml' };
+    }
+  }
+
+  // Full image fallback chain
+  const imagePathJpg = path.join(__dirname, '../images', `${xNum}_${yNum}.jpg`);
+  const imagePathPng = path.join(__dirname, '../images', `${xNum}_${yNum}.png`);
+  const imagePathSvg = path.join(__dirname, '../images', `${xNum}_${yNum}.svg`);
+  if (fs.existsSync(imagePathJpg)) {
+    return { buffer: fs.readFileSync(imagePathJpg), contentType: 'image/jpeg' };
+  } else if (fs.existsSync(imagePathPng)) {
+    return { buffer: fs.readFileSync(imagePathPng), contentType: 'image/png' };
+  } else if (fs.existsSync(imagePathSvg)) {
+    return { buffer: fs.readFileSync(imagePathSvg), contentType: 'image/svg+xml' };
+  }
+
+  // Procedural biome template
+  const height = getHeightAt(xNum, yNum);
+  const biome = getBiomeTemplatePath(height);
+  if (biome) {
+    return { buffer: fs.readFileSync(biome.path), contentType: biome.contentType };
+  }
+
+  // Last resort: svg
+  const svgHexagon = createSVGHexagon(xNum, yNum);
+  return { buffer: Buffer.from(svgHexagon, 'utf8'), contentType: 'image/svg+xml' };
+}
+
+// Batch endpoint: fetch many hexes in one request
+app.post('/api/hexagons/batch', async (req, res) => {
+  try {
+    const { coords, thumbnail } = req.body || {};
+    if (!Array.isArray(coords)) {
+      return res.status(400).json({ error: 'coords must be an array of {x,y}' });
+    }
+
+    // Limit to prevent abuse
+    const MAX_BATCH = 500;
+    const list = coords.slice(0, MAX_BATCH);
+    const wantThumbnail = thumbnail !== false;
+
+    const results: Array<{ x: number; y: number; contentType: string; data: string }> = [];
+    for (const item of list) {
+      const xNum = parseInt(item?.x);
+      const yNum = parseInt(item?.y);
+      if (Number.isNaN(xNum) || Number.isNaN(yNum)) continue;
+      const resolved = await resolveHexImage(xNum, yNum, wantThumbnail);
+      if (!resolved) continue;
+      const base64 = resolved.buffer.toString('base64');
+      results.push({ x: xNum, y: yNum, contentType: resolved.contentType, data: base64 });
+    }
+
+    res.json({ items: results });
+  } catch (err) {
+    console.error('Batch fetch error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

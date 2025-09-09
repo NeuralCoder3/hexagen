@@ -11,9 +11,10 @@ interface HexagonProps {
   x: number;
   y: number;
   size: number;
+  thumbnailSrc?: string;
 }
 
-const Hexagon: React.FC<HexagonProps> = ({ x, y, size }) => {
+const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc }) => {
   const [imageUrl, setImageUrl] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [showFullImage, setShowFullImage] = useState(false);
@@ -22,32 +23,13 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size }) => {
   const [dragStartPos, setDragStartPos] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
-    const fetchHexagonImage = async () => {
-      try {
-        setLoading(true);
-        // Fetch thumbnail by default (no parameter needed)
-        const response = await fetch(`/api/hexagon/${x}/${y}`);
-        
-        if (response.ok) {
-          const blob = await response.blob();
-          const url = URL.createObjectURL(blob);
-          setImageUrl(url);
-        }
-      } catch (error) {
-        console.error('Error fetching hexagon thumbnail:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchHexagonImage();
-
-    return () => {
-      if (imageUrl) {
-        URL.revokeObjectURL(imageUrl);
-      }
-    };
-  }, [x, y]);
+    if (thumbnailSrc) {
+      setImageUrl(thumbnailSrc);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+  }, [thumbnailSrc]);
 
   const handleHexagonClick = async () => {
     // Only open popup if it wasn't a drag operation
@@ -174,6 +156,9 @@ const HexagonalGrid: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const baseHexSize = 30;
 
+  // Cache for thumbnails: key is `${x}_${y}`, value is object URL or data URL
+  const [thumbnailCache] = useState<Map<string, string>>(() => new Map());
+
   // Calculate visible hexagons based on viewport and zoom
   const getVisibleHexagons = useCallback(() => {
     if (!containerRef.current) return [];
@@ -208,6 +193,70 @@ const HexagonalGrid: React.FC = () => {
     setVisibleHexagons(getVisibleHexagons());
   }, [getVisibleHexagons]);
 
+  // Batch fetch thumbnails for currently visible hexes
+  useEffect(() => {
+    const missing = visibleHexagons.filter(({ x, y }) => !thumbnailCache.has(`${x}_${y}`));
+    if (missing.length === 0) return;
+
+    const controller = new AbortController();
+    const CHUNK_SIZE = 120; // keep well below backend 2mb and 500 cap
+    const chunks: Array<Array<{ x: number; y: number }>> = [];
+    for (let i = 0; i < missing.length; i += CHUNK_SIZE) {
+      chunks.push(missing.slice(i, i + CHUNK_SIZE));
+    }
+
+    let cancelled = false;
+    const run = async () => {
+      // Limit concurrency to 2
+      const MAX_CONCURRENCY = 2;
+      let index = 0;
+      const inFlight: Promise<void>[] = [];
+
+      const launch = async (chunkIndex: number) => {
+        const coords = chunks[chunkIndex].map(({ x, y }) => ({ x, y }));
+        const res = await fetch('/api/hexagons/batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ coords, thumbnail: true }),
+          signal: controller.signal,
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        const items: Array<{ x: number; y: number; contentType: string; data: string }> = json.items || [];
+        for (const item of items) {
+          const key = `${item.x}_${item.y}`;
+          const dataUrl = `data:${item.contentType};base64,${item.data}`;
+          if (!thumbnailCache.has(key)) {
+            thumbnailCache.set(key, dataUrl);
+          }
+        }
+        if (!cancelled) {
+          setVisibleHexagons((prev) => [...prev]);
+        }
+      };
+
+      while (index < chunks.length || inFlight.length > 0) {
+        while (index < chunks.length && inFlight.length < MAX_CONCURRENCY) {
+          const p = launch(index++).catch(() => {});
+          inFlight.push(p);
+        }
+        await Promise.race(inFlight);
+        // remove settled
+        for (let i = inFlight.length - 1; i >= 0; i--) {
+          if ((inFlight[i] as any).settled) continue;
+        }
+        // filter by settled using Promise.any trick is not straightforward; just await all briefly
+        await Promise.allSettled(inFlight.splice(0, inFlight.length));
+      }
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [visibleHexagons, thumbnailCache]);
+
   // Handle mouse wheel for zooming
   const handleWheel = useCallback((e: WheelEvent) => {
     e.preventDefault();
@@ -224,7 +273,7 @@ const HexagonalGrid: React.FC = () => {
     const zoomPointY = (mouseY - pan.y) / zoom;
     
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    const newZoom = Math.max(0.1, Math.min(5, zoom * delta));
+    const newZoom = Math.max(0.4, Math.min(5, zoom * delta));
     
     // Adjust pan to keep zoom point under cursor
     const newPanX = mouseX - zoomPointX * newZoom;
@@ -342,6 +391,7 @@ const HexagonalGrid: React.FC = () => {
               x={x}
               y={y}
               size={baseHexSize}
+              thumbnailSrc={thumbnailCache.get(`${x}_${y}`)}
             />
           ))}
         </div>
@@ -349,7 +399,7 @@ const HexagonalGrid: React.FC = () => {
       
       <div className="controls">
         <div className="zoom-controls">
-          <button onClick={() => setZoom(Math.max(0.1, zoom * 0.8))}>-</button>
+          <button onClick={() => setZoom(Math.max(0.4, zoom * 0.8))}>-</button>
           <span>{Math.round(zoom * 100)}%</span>
           <button onClick={() => setZoom(Math.min(5, zoom * 1.25))}>+</button>
         </div>
