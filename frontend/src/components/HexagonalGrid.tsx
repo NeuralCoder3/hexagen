@@ -163,11 +163,13 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size }) => {
 };
 
 const HexagonalGrid: React.FC = () => {
-  const [zoom, setZoom] = useState(1);
+  const [zoom, setZoom] = useState(1.5); // Start at 150% (which will be the new 100%)
   const [pan, setPan] = useState<Position>({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<Position>({ x: 0, y: 0 });
   const [panStart, setPanStart] = useState<Position>({ x: 0, y: 0 });
+  const [jumpX, setJumpX] = useState<string>('0');
+  const [jumpY, setJumpY] = useState<string>('0');
   
   const containerRef = useRef<HTMLDivElement>(null);
   const baseHexSize = 30;
@@ -272,6 +274,49 @@ const HexagonalGrid: React.FC = () => {
     }
   }, [handleWheel]);
 
+  // Center view on (0,0) at startup
+  useEffect(() => {
+    if (containerRef.current) {
+      const containerWidth = containerRef.current.clientWidth;
+      const containerHeight = containerRef.current.clientHeight;
+      
+      // Center (0,0) hexagon on screen
+      const hexX = 0 * baseHexSize * 1.0;
+      const hexY = 0 * baseHexSize * Math.sqrt(3) * 1.4 + (0 % 2) * baseHexSize * Math.sqrt(3) * 0.7;
+      
+      const centerX = containerWidth / 2 - hexX * zoom;
+      const centerY = containerHeight / 2 - hexY * zoom;
+      
+      setPan({ x: centerX, y: centerY });
+    }
+  }, []); // Run once on mount
+
+  // Jump to specific coordinates
+  const handleJumpToCoordinate = useCallback(() => {
+    const x = parseInt(jumpX);
+    const y = parseInt(jumpY);
+    
+    if (isNaN(x) || isNaN(y)) {
+      alert('Please enter valid coordinates');
+      return;
+    }
+    
+    // Calculate the position of the target hexagon
+    const hexX = x * baseHexSize * 1.0;
+    const hexY = y * baseHexSize * Math.sqrt(3) * 1.4 + (x % 2) * baseHexSize * Math.sqrt(3) * 0.7;
+    
+    // Center the target hexagon on screen
+    if (containerRef.current) {
+      const containerWidth = containerRef.current.clientWidth;
+      const containerHeight = containerRef.current.clientHeight;
+      
+      const newPanX = containerWidth / 2 - hexX * zoom;
+      const newPanY = containerHeight / 2 - hexY * zoom;
+      
+      setPan({ x: newPanX, y: newPanY });
+    }
+  }, [jumpX, jumpY, zoom]);
+
   return (
     <div className="hexagonal-grid-container">
       <div
@@ -320,12 +365,50 @@ const HexagonalGrid: React.FC = () => {
         <button 
           className="reset-button"
           onClick={() => {
-            setPan({ x: 0, y: 0 });
-            setZoom(1);
+            setZoom(1.5); // Reset to new "100%" zoom
+            // Center on (0,0)
+            if (containerRef.current) {
+              const containerWidth = containerRef.current.clientWidth;
+              const containerHeight = containerRef.current.clientHeight;
+              
+              const hexX = 0 * baseHexSize * 1.0;
+              const hexY = 0 * baseHexSize * Math.sqrt(3) * 1.4 + (0 % 2) * baseHexSize * Math.sqrt(3) * 0.7;
+              
+              const centerX = containerWidth / 2 - hexX * 1.5;
+              const centerY = containerHeight / 2 - hexY * 1.5;
+              
+              setPan({ x: centerX, y: centerY });
+            }
           }}
         >
           Reset View
         </button>
+        
+        <div className="jump-controls">
+          <h4>Jump to Coordinate</h4>
+          <div className="jump-inputs">
+            <input
+              type="number"
+              value={jumpX}
+              onChange={(e) => setJumpX(e.target.value)}
+              placeholder="X"
+              className="jump-input"
+            />
+            <input
+              type="number"
+              value={jumpY}
+              onChange={(e) => setJumpY(e.target.value)}
+              placeholder="Y"
+              className="jump-input"
+            />
+            <button 
+              className="jump-button"
+              onClick={handleJumpToCoordinate}
+            >
+              Jump
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
