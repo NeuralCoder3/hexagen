@@ -49,14 +49,21 @@ function getHexagonPosition(x: number, y: number, size: number = 100): { x: numb
 // Get the 6 neighbors of a hexagon (correct hexagonal grid neighbors)
 function getHexagonNeighbors(x: number, y: number): Array<{ x: number; y: number }> {
   const neighbors: Array<{ x: number; y: number }> = [];
+  neighbors.push({ x: x-2, y: y });     // east
+  neighbors.push({ x: x+2, y: y });     // west
   
   // Hexagonal grid neighbors - proper hex grid layout
-  neighbors.push({ x: x + 1, y: y });     // East
-  neighbors.push({ x: x - 1, y: y });     // West
-  neighbors.push({ x: x-2, y: y });     // North
-  neighbors.push({ x: x+2, y: y });     // South
-  neighbors.push({ x: x + 1, y: y - 1 }); // Northeast
-  neighbors.push({ x: x - 1, y: y + 1 }); // Southwest
+  if (x % 2 == 0) {
+  neighbors.push({ x: x - 1, y: y - 1 });
+  neighbors.push({ x: x + 1, y: y - 1 });
+  neighbors.push({ x: x - 1, y: y });
+  neighbors.push({ x: x + 1, y: y });
+  }else {
+  neighbors.push({ x: x - 1, y: y + 0 });
+  neighbors.push({ x: x + 1, y: y + 0 });
+  neighbors.push({ x: x - 1, y: y + 1 });
+  neighbors.push({ x: x + 1, y: y + 1 });
+  }
   
   return neighbors;
 }

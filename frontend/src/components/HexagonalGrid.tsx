@@ -12,9 +12,10 @@ interface HexagonProps {
   y: number;
   size: number;
   thumbnailSrc?: string;
+  onTileGenerated?: (x: number, y: number) => void;
 }
 
-const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc }) => {
+const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGenerated }) => {
   const [imageUrl, setImageUrl] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [showFullImage, setShowFullImage] = useState(false);
@@ -84,8 +85,8 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc }) => {
         // Success - refresh the image
         setShowGenerateForm(false);
         setGeneratePrompt('');
-        // Refresh the thumbnail cache by triggering a re-fetch
-        window.location.reload();
+        // Notify parent component to refresh this tile
+        onTileGenerated?.(x, y);
       } else {
         alert(`Error: ${data.error}`);
       }
@@ -246,6 +247,14 @@ const HexagonalGrid: React.FC = () => {
 
   // Cache for thumbnails: key is `${x}_${y}`, value is object URL or data URL
   const [thumbnailCache] = useState<Map<string, string>>(() => new Map());
+
+  // Callback to refresh a specific tile after generation
+  const handleTileGenerated = useCallback((x: number, y: number) => {
+    // Clear cache for this specific tile to force re-fetch
+    thumbnailCache.delete(`${x}_${y}`);
+    // Trigger a re-render by updating a state that affects the grid
+    setZoom(prevZoom => prevZoom + 0.001); // Tiny change to trigger re-render
+  }, [thumbnailCache]);
 
   // Calculate visible hexagons based on viewport and zoom
   const getVisibleHexagons = useCallback(() => {
@@ -492,6 +501,7 @@ const HexagonalGrid: React.FC = () => {
               y={y}
               size={baseHexSize}
               thumbnailSrc={thumbnailCache.get(`${x}_${y}`)}
+              onTileGenerated={handleTileGenerated}
             />
           ))}
         </div>
