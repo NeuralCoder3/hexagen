@@ -58,69 +58,14 @@ class HexagonCropper {
     const cropSize = hexagonSize;
     
     // Create a mask for the hexagon shape
-    const maskPath = path.join(path.dirname(outputPath), 'temp_mask.png');
+    const maskPath = path.join("templates", "mask.png");
     
     try {
-      // Create hexagonal mask
-      await this.createHexagonMask(maskPath, imageSize, hexagonSize);
-      
       // Apply mask and crop
-      const command = `magick "${inputPath}" "${maskPath}" -compose CopyOpacity -composite -quality 90 "${outputPath}"`;
-      
+      const command = `magick "${inputPath}" "${maskPath}" -alpha off -compose copyopacity -composite "${outputPath}"`;
       await execAsync(command);
-      
-      // Clean up temporary mask
-      if (fs.existsSync(maskPath)) {
-        fs.unlinkSync(maskPath);
-      }
     } catch (error) {
-      // Clean up temporary mask on error
-      if (fs.existsSync(maskPath)) {
-        fs.unlinkSync(maskPath);
-      }
       throw error;
-    }
-  }
-
-  private async createHexagonMask(maskPath: string, imageSize: number, hexagonSize: number): Promise<void> {
-    const centerX = imageSize / 2;
-    const centerY = imageSize / 2;
-    
-    // Use the same isometric hexagon coordinates as our SVG files
-    // const hexPoints = [
-    //   `${centerX},${centerY - 196}`,  // top
-    //   `${centerX + 200},${centerY - 70}`,  // top-right
-    //   `${centerX + 200},${centerY + 56}`,  // bottom-right
-    //   `${centerX},${centerY + 196}`,  // bottom
-    //   `${centerX - 200},${centerY + 56}`,  // bottom-left
-    //   `${centerX - 200},${centerY - 70}`   // top-left
-    // ].join(' ');
-    const hexPoints = "256,60 656,200 656,312 256,452 -144,312 -144,200";
-    console.log(hexPoints);
-    
-    // Create SVG mask
-    const svgContent = `
-      <svg width="${imageSize}" height="${imageSize}" xmlns="http://www.w3.org/2000/svg">
-        <polygon
-          points="${hexPoints}"
-          fill="white"
-        />
-      </svg>
-    `;
-
-    // Write SVG to temporary file
-    const tempSvgPath = maskPath.replace('.png', '.svg');
-    fs.writeFileSync(tempSvgPath, svgContent);
-
-    try {
-      // Convert SVG to PNG mask
-      const command = `magick "${tempSvgPath}" "${maskPath}"`;
-      await execAsync(command);
-    } finally {
-      // Clean up temporary SVG
-      if (fs.existsSync(tempSvgPath)) {
-        // fs.unlinkSync(tempSvgPath);
-      }
     }
   }
 

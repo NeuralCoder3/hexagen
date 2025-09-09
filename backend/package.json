@@ -10,7 +10,8 @@
     "generate-thumbnails": "tsx scripts/generateThumbnails.ts all",
     "generate-thumbnail": "tsx scripts/generateThumbnails.ts",
     "crop-hexagons": "tsx scripts/cropHexagons.ts all",
-    "crop-hexagon": "tsx scripts/cropHexagons.ts"
+    "crop-hexagon": "tsx scripts/cropHexagons.ts",
+    "generate-coordinate": "tsx scripts/generateCoordinateImage.ts"
   },
   "dependencies": {
     "express": "^4.18.2",
