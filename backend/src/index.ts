@@ -9,6 +9,7 @@ import { generateCoordinateImage } from '../scripts/generateCoordinateImage';
 import { DEFAULT_HEX_SIZE, DEFAULT_CANVAS_SIZE, extractCenterHexagon } from '../scripts/utils/extractCenterHexagon';
 import dotenv from 'dotenv';
 import { getHexagonNeighbors, getNeighborsWithinRadiusTwo } from '../scripts/utils/hexGrid';
+import { getBackendRoot, getBackendPaths, getHexagonImagePaths } from './utils/paths';
 
 // Load environment variables
 dotenv.config();
@@ -35,29 +36,13 @@ app.use(session({
   }
 }));
 
-// Resolve backend root that works for both dev (src) and prod (dist/src)
-function resolveBackendRoot(currentDir: string): string {
-  // In Docker: currentDir = /app/backend/dist/src, we want /app/backend
-  // In dev: currentDir = /path/to/backend/src, we want /path/to/backend
-  
-  // First try: go up one level (dev: src -> backend; prod: dist/src -> dist)
-  const candidate1 = path.resolve(currentDir, '..');
-  const templatesAtCandidate1 = path.join(candidate1, 'templates');
-  if (fs.existsSync(templatesAtCandidate1)) return candidate1;
-  
-  // Second try: go up two levels (prod: dist/src -> backend)
-  const candidate2 = path.resolve(currentDir, '..', '..');
-  const templatesAtCandidate2 = path.join(candidate2, 'templates');
-  if (fs.existsSync(templatesAtCandidate2)) return candidate2;
-  
-  // Fallback: return the two-levels-up path (should be /app/backend in Docker)
-  return candidate2;
-}
-const BACKEND_ROOT = resolveBackendRoot(__dirname);
-const IMAGES_DIR = path.join(BACKEND_ROOT, 'images');
-const THUMBNAILS_DIR = path.join(BACKEND_ROOT, 'thumbnails');
-const TEMPLATES_DIR = path.join(BACKEND_ROOT, 'templates');
-const METADATA_DIR = path.join(BACKEND_ROOT, 'metadata');
+// Get backend paths using shared utility
+const BACKEND_ROOT = getBackendRoot();
+const paths = getBackendPaths(BACKEND_ROOT);
+const IMAGES_DIR = paths.images;
+const THUMBNAILS_DIR = paths.thumbnails;
+const TEMPLATES_DIR = paths.templates;
+const METADATA_DIR = paths.metadata;
 if (!fs.existsSync(METADATA_DIR)) {
   try { fs.mkdirSync(METADATA_DIR, { recursive: true }); } catch {}
 }
@@ -195,19 +180,15 @@ app.get('/api/hexagon/:x/:y/can-generate', (req, res) => {
     return res.status(400).json({ allowed: false, reason: 'Invalid coordinates' });
   }
   // Already exists? Then no need to generate
-  const jpg = path.join(IMAGES_DIR, `${xNum}_${yNum}.jpg`);
-  const png = path.join(IMAGES_DIR, `${xNum}_${yNum}.png`);
-  const svg = path.join(IMAGES_DIR, `${xNum}_${yNum}.svg`);
-  if (fs.existsSync(jpg) || fs.existsSync(png) || fs.existsSync(svg)) {
+  const imagePaths = getHexagonImagePaths(xNum, yNum, IMAGES_DIR);
+  if (imagePaths.exists) {
     return res.json({ allowed: false, reason: 'Tile already exists' });
   }
   const neighbors = getNeighborsWithinRadiusTwo(xNum, yNum);
   let hasNeighbor = false;
   for (const n of neighbors) {
-    const nJpg = path.join(IMAGES_DIR, `${n.x}_${n.y}.jpg`);
-    const nPng = path.join(IMAGES_DIR, `${n.x}_${n.y}.png`);
-    const nSvg = path.join(IMAGES_DIR, `${n.x}_${n.y}.svg`);
-    if (fs.existsSync(nJpg) || fs.existsSync(nPng) || fs.existsSync(nSvg)) {
+    const neighborPaths = getHexagonImagePaths(n.x, n.y, IMAGES_DIR);
+    if (neighborPaths.exists) {
       hasNeighbor = true;
       break;
     }
@@ -252,11 +233,8 @@ app.get('/api/hexagon/:x/:y', async (req, res) => {
     }
     
     // Check if specific hexagon image exists (try .jpg first, then .png, then .svg)
-    const imagePathJpg = path.join(IMAGES_DIR, `${xNum}_${yNum}.jpg`);
-    const imagePathPng = path.join(IMAGES_DIR, `${xNum}_${yNum}.png`);
-    const imagePathSvg = path.join(IMAGES_DIR, `${xNum}_${yNum}.svg`);
-    
-    const hasCustomImage = fs.existsSync(imagePathJpg) || fs.existsSync(imagePathPng) || fs.existsSync(imagePathSvg);
+    const imagePaths = getHexagonImagePaths(xNum, yNum, IMAGES_DIR);
+    const hasCustomImage = imagePaths.exists;
     
     // If checkExists is true, return whether tile exists
     if (checkExists === 'true') {
@@ -290,15 +268,15 @@ app.get('/api/hexagon/:x/:y', async (req, res) => {
           
           // Determine which full image to use
           let sourceImagePath = null;
-          if (fs.existsSync(imagePathJpg)) {
-            sourceImagePath = imagePathJpg;
-            console.log(`Using JPG source: ${imagePathJpg}`);
-          } else if (fs.existsSync(imagePathPng)) {
-            sourceImagePath = imagePathPng;
-            console.log(`Using PNG source: ${imagePathPng}`);
-          } else if (fs.existsSync(imagePathSvg)) {
-            sourceImagePath = imagePathSvg;
-            console.log(`Using SVG source: ${imagePathSvg}`);
+          if (fs.existsSync(imagePaths.jpg)) {
+            sourceImagePath = imagePaths.jpg;
+            console.log(`Using JPG source: ${imagePaths.jpg}`);
+          } else if (fs.existsSync(imagePaths.png)) {
+            sourceImagePath = imagePaths.png;
+            console.log(`Using PNG source: ${imagePaths.png}`);
+          } else if (fs.existsSync(imagePaths.svg)) {
+            sourceImagePath = imagePaths.svg;
+            console.log(`Using SVG source: ${imagePaths.svg}`);
           }
           
           if (sourceImagePath) {
@@ -329,18 +307,18 @@ app.get('/api/hexagon/:x/:y', async (req, res) => {
       }
     }
     
-    if (fs.existsSync(imagePathJpg)) {
+    if (fs.existsSync(imagePaths.jpg)) {
       // Return the specific hexagon JPG image
       res.setHeader('Content-Type', 'image/jpeg');
-      res.sendFile(imagePathJpg);
-    } else if (fs.existsSync(imagePathPng)) {
+      res.sendFile(imagePaths.jpg);
+    } else if (fs.existsSync(imagePaths.png)) {
       // Return the specific hexagon PNG image
       res.setHeader('Content-Type', 'image/png');
-      res.sendFile(imagePathPng);
-    } else if (fs.existsSync(imagePathSvg)) {
+      res.sendFile(imagePaths.png);
+    } else if (fs.existsSync(imagePaths.svg)) {
       // Return the specific hexagon SVG image
       res.setHeader('Content-Type', 'image/svg+xml');
-      res.sendFile(imagePathSvg);
+      res.sendFile(imagePaths.svg);
     } else {
       // No specific image found: compute biome by Perlin noise and return its template
       const height = getHeightAt(xNum, yNum);
@@ -429,15 +407,13 @@ async function resolveHexImage(xNum: number, yNum: number, wantThumbnail: boolea
   }
   
   // Fall back to full image or biome template
-  const imagePathJpg = path.join(IMAGES_DIR, `${xNum}_${yNum}.jpg`);
-  const imagePathPng = path.join(IMAGES_DIR, `${xNum}_${yNum}.png`);
-  const imagePathSvg = path.join(IMAGES_DIR, `${xNum}_${yNum}.svg`);
-  if (fs.existsSync(imagePathJpg)) {
-    return { buffer: fs.readFileSync(imagePathJpg), contentType: 'image/jpeg' };
-  } else if (fs.existsSync(imagePathPng)) {
-    return { buffer: fs.readFileSync(imagePathPng), contentType: 'image/png' };
-  } else if (fs.existsSync(imagePathSvg)) {
-    return { buffer: fs.readFileSync(imagePathSvg), contentType: 'image/svg+xml' };
+  const imagePaths = getHexagonImagePaths(xNum, yNum, IMAGES_DIR);
+  if (fs.existsSync(imagePaths.jpg)) {
+    return { buffer: fs.readFileSync(imagePaths.jpg), contentType: 'image/jpeg' };
+  } else if (fs.existsSync(imagePaths.png)) {
+    return { buffer: fs.readFileSync(imagePaths.png), contentType: 'image/png' };
+  } else if (fs.existsSync(imagePaths.svg)) {
+    return { buffer: fs.readFileSync(imagePaths.svg), contentType: 'image/svg+xml' };
   }
   
   const height = getHeightAt(xNum, yNum);
@@ -558,10 +534,8 @@ app.post('/api/generate-tile', requireAuth, async (req, res) => {
     const neighbors = getNeighborsWithinRadiusTwo(xNum, yNum);
     let hasNeighbor = false;
     for (const n of neighbors) {
-      const jpg = path.join(IMAGES_DIR, `${n.x}_${n.y}.jpg`);
-      const png = path.join(IMAGES_DIR, `${n.x}_${n.y}.png`);
-      const svg = path.join(IMAGES_DIR, `${n.x}_${n.y}.svg`);
-      if (fs.existsSync(jpg) || fs.existsSync(png) || fs.existsSync(svg)) {
+      const neighborPaths = getHexagonImagePaths(n.x, n.y, IMAGES_DIR);
+      if (neighborPaths.exists) {
         hasNeighbor = true;
         break;
       }
@@ -571,17 +545,13 @@ app.post('/api/generate-tile', requireAuth, async (req, res) => {
     }
     
     // Check if tile already exists
-    const imagesDir = IMAGES_DIR;
-    const imagePathJpg = path.join(imagesDir, `${xNum}_${yNum}.jpg`);
-    const imagePathPng = path.join(imagesDir, `${xNum}_${yNum}.png`);
-    const imagePathSvg = path.join(imagesDir, `${xNum}_${yNum}.svg`);
-    
-    if (fs.existsSync(imagePathJpg) || fs.existsSync(imagePathPng) || fs.existsSync(imagePathSvg)) {
+    const imagePaths = getHexagonImagePaths(xNum, yNum, IMAGES_DIR);
+    if (imagePaths.exists) {
       return res.status(409).json({ error: 'Tile already exists' });
     }
     
     // Generate coordinate image for the tile in a permanent location (outside temp dir)
-    permanentImagePath = path.join(BACKEND_ROOT, 'coordinate_images', `coordinate_${xNum}_${yNum}.png`);
+    permanentImagePath = path.join(paths.coordinateImages, `coordinate_${xNum}_${yNum}.png`);
     
     // Ensure the coordinate_images directory exists
     const coordinateImagesDir = path.dirname(permanentImagePath);
@@ -677,7 +647,7 @@ app.post('/api/generate-tile', requireAuth, async (req, res) => {
     const data = response.data;
     
     // Log the response
-    const logPath = path.join(BACKEND_ROOT, 'logs', 'image_generation.log');
+    const logPath = path.join(paths.logs, 'image_generation.log');
     const logDir = path.dirname(logPath);
     if (!fs.existsSync(logDir)) {
       fs.mkdirSync(logDir, { recursive: true });
@@ -703,12 +673,12 @@ app.post('/api/generate-tile', requireAuth, async (req, res) => {
       const imageBuffer = await imageResponse.arrayBuffer();
       
       // Save the image
-      let finalImagePath = path.join(imagesDir, `${xNum}_${yNum}_org.png`);
+      let finalImagePath = path.join(IMAGES_DIR, `${xNum}_${yNum}_org.png`);
       fs.writeFileSync(finalImagePath, Buffer.from(imageBuffer));
 
       // Extract center hexagon from the generated image
       try {
-        const centerHexPath = path.join(imagesDir, `${xNum}_${yNum}.png`);
+        const centerHexPath = path.join(IMAGES_DIR, `${xNum}_${yNum}.png`);
         await extractCenterHexagon(finalImagePath, centerHexPath, 2*DEFAULT_HEX_SIZE, 2*DEFAULT_CANVAS_SIZE);
         fs.unlinkSync(finalImagePath);
         finalImagePath = centerHexPath;
@@ -716,7 +686,7 @@ app.post('/api/generate-tile', requireAuth, async (req, res) => {
       } catch (extractError) {
         console.error('Error extracting center hexagon:', extractError);
         // Keep the original image if extraction fails
-        finalImagePath = path.join(imagesDir, `${xNum}_${yNum}_org.png`);
+        finalImagePath = path.join(IMAGES_DIR, `${xNum}_${yNum}_org.png`);
       }
 
       // Persist metadata (prompt and creation time)

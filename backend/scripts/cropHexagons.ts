@@ -4,19 +4,15 @@ import fs from 'fs';
 import path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { getBackendRoot, getBackendPaths } from '../src/utils/paths';
 
 const execAsync = promisify(exec);
 
-// Resolve backend root in dev (scripts) and prod (dist/scripts)
-function resolveBackendRoot(currentDir: string): string {
-  const candidate = path.resolve(currentDir, '..');
-  const templatesAtCandidate = path.join(candidate, 'templates');
-  if (fs.existsSync(templatesAtCandidate)) return candidate;
-  return path.resolve(currentDir, '..', '..');
-}
-const BACKEND_ROOT = resolveBackendRoot(__dirname);
-const TEMPLATES_DIR = path.join(BACKEND_ROOT, 'templates');
-const TEMP_DIR = path.join(BACKEND_ROOT, 'temp');
+// Get backend paths using shared utility
+const BACKEND_ROOT = getBackendRoot();
+const paths = getBackendPaths(BACKEND_ROOT);
+const TEMPLATES_DIR = paths.templates;
+const TEMP_DIR = paths.temp;
 
 interface CropOptions {
   inputDir: string;

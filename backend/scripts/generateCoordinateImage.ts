@@ -10,43 +10,23 @@ import { getHeightAt, getBiomeTemplatePath } from '../src/terrain';
 import { HexagonCropper } from './cropHexagons';
 import { extractCenterHexagon, DEFAULT_HEX_SIZE, DEFAULT_CANVAS_SIZE } from './utils/extractCenterHexagon';
 import { getHexagonNeighbors } from './utils/hexGrid';
+import { getBackendRoot, getBackendPaths, getHexagonImagePath } from '../src/utils/paths';
 
 const hexSize = DEFAULT_HEX_SIZE; // Base hexagon size (matches frontend baseHexSize)
 const canvasSize = DEFAULT_CANVAS_SIZE;
 
-// Resolve backend project root (when compiled, __dirname will be dist/scripts)
-function resolveBackendRoot(currentDir: string): string {
-  // In Docker: currentDir = /app/backend/dist/scripts, we want /app/backend
-  // In dev: currentDir = /path/to/backend/scripts, we want /path/to/backend
-  
-  // First try: go up one level (dev: scripts -> backend; prod: dist/scripts -> dist)
-  const candidate1 = path.resolve(currentDir, '..');
-  const templatesAtCandidate1 = path.join(candidate1, 'templates');
-  if (fs.existsSync(templatesAtCandidate1)) return candidate1;
-  
-  // Second try: go up two levels (prod: dist/scripts -> backend)
-  const candidate2 = path.resolve(currentDir, '..', '..');
-  const templatesAtCandidate2 = path.join(candidate2, 'templates');
-  if (fs.existsSync(templatesAtCandidate2)) return candidate2;
-  
-  // Fallback: return the two-levels-up path (should be /app/backend in Docker)
-  return candidate2;
-}
-
-const PROJECT_ROOT = resolveBackendRoot(__dirname);
-const IMAGES_DIR = path.join(PROJECT_ROOT, 'images');
-const TEMPLATES_DIR = path.join(PROJECT_ROOT, 'templates');
-const TEMP_DIR = path.join(PROJECT_ROOT, 'temp');
+// Get backend paths using shared utility
+const PROJECT_ROOT = getBackendRoot();
+const paths = getBackendPaths(PROJECT_ROOT);
+const IMAGES_DIR = paths.images;
+const TEMPLATES_DIR = paths.templates;
+const TEMP_DIR = paths.temp;
 
 // Get hexagon image path (specific image, biome template, or fallback)
-function getHexagonImagePath(x: number, y: number, noise: boolean): string {
-  const suffixes = ["jpg", "png", "svg"];
-  
-  // Check for specific hexagon image
-  for (const suffix of suffixes) {
-    const imagePath = path.join(IMAGES_DIR, `${x}_${y}.${suffix}`);
-    if (fs.existsSync(imagePath)) return imagePath;
-  }
+function getHexagonImagePathForCoordinate(x: number, y: number, noise: boolean): string {
+  // Check for specific hexagon image using shared utility
+  const imagePath = getHexagonImagePath(x, y, IMAGES_DIR);
+  if (imagePath) return imagePath;
   
   // Use biome template
   const height = getHeightAt(x, y);
@@ -54,6 +34,7 @@ function getHexagonImagePath(x: number, y: number, noise: boolean): string {
   if (biomePath) return biomePath;
   
   // Fallback to generic template
+  const suffixes = ["jpg", "png", "svg"];
   for (const suffix of suffixes) {
     const templatePath = path.join(TEMPLATES_DIR, `hexagon_template.${suffix}`);
     if (fs.existsSync(templatePath)) return templatePath;
@@ -105,7 +86,7 @@ async function generateCoordinateImage(centerX: number, centerY: number, outputP
   // Place each hexagon
   for (const hex of allHexagons) {
     const hexPos = getHexagonPosition(hex.x, hex.y, hexSize);
-    const hexImagePath = getHexagonImagePath(hex.x, hex.y, (hex.x == centerX && hex.y == centerY));
+    const hexImagePath = getHexagonImagePathForCoordinate(hex.x, hex.y, (hex.x == centerX && hex.y == centerY));
     
     // Calculate final position on canvas
     const finalX = hexPos.x + offsetX;

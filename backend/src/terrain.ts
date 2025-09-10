@@ -1,14 +1,9 @@
 import fs from 'fs';
 import path from 'path';
+import { getBackendRoot } from './utils/paths';
 
-// Resolve backend root that works for both dev (src) and prod (dist/src)
-function resolveBackendRoot(currentDir: string): string {
-  const candidate = path.resolve(currentDir, '..');
-  const templatesAtCandidate = path.join(candidate, 'templates');
-  if (fs.existsSync(templatesAtCandidate)) return candidate;
-  return path.resolve(currentDir, '..', '..');
-}
-const BACKEND_ROOT = resolveBackendRoot(__dirname);
+// Get backend root using shared utility
+const BACKEND_ROOT = getBackendRoot();
 
 // Perlin noise implementation
 class Perlin2D {
