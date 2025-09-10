@@ -13,9 +13,11 @@ interface HexagonProps {
   size: number;
   thumbnailSrc?: string;
   onTileGenerated?: (x: number, y: number) => void;
+  isCenter?: boolean;
+  isAuthenticated?: boolean;
 }
 
-const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGenerated }) => {
+const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGenerated, isCenter = false, isAuthenticated = false }) => {
   const [imageUrl, setImageUrl] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [showFullImage, setShowFullImage] = useState(false);
@@ -26,20 +28,12 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
   const [generatePrompt, setGeneratePrompt] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [metadata, setMetadata] = useState<{ prompt?: string; createdAt?: string; username?: string | null } | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [showLoginCta, setShowLoginCta] = useState(false);
   const [canGenerateHere, setCanGenerateHere] = useState<boolean | null>(null);
   const [cannotReason, setCannotReason] = useState<string>('');
   const [rateLimitCountdown, setRateLimitCountdown] = useState<number | null>(null);
   const [generatingCoordinates, setGeneratingCoordinates] = useState<{ x: number; y: number } | null>(null);
   const [generatingUser, setGeneratingUser] = useState<string | null>(null);
-
-  useEffect(() => {
-    // Preload auth status (once)
-    if (isAuthenticated === null) {
-      fetch('/api/auth/status', { credentials: 'include' }).then(r => r.json()).then(j => setIsAuthenticated(!!j.authenticated)).catch(() => setIsAuthenticated(false));
-    }
-  }, [isAuthenticated]);
 
   // Countdown timer for rate limiting
   useEffect(() => {
@@ -264,7 +258,7 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
   return (
     <>
       <div
-        className="hexagon-container"
+        className={`hexagon-container ${isCenter ? 'center-hexagon' : ''}`}
         style={{
           left: hexX,
           top: hexY,
@@ -443,6 +437,132 @@ const HexagonalGrid: React.FC = () => {
   // Polling state for updates
   const [lastUpdateCheck, setLastUpdateCheck] = useState<number>(Date.now());
   const [isPolling, setIsPolling] = useState<boolean>(true);
+  
+  // Current center hexagon position
+  const [centerHexagon, setCenterHexagon] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  
+  // Flag to prevent URL updates during initial navigation - set to true initially
+  const [isInitialNavigation, setIsInitialNavigation] = useState<boolean>(true);
+  
+  // Auth status for all hexagons (shared across all hexagon components)
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+
+  // Check auth status once on mount
+  useEffect(() => {
+    fetch('/api/auth/status', { credentials: 'include' })
+      .then(r => r.json())
+      .then(j => setIsAuthenticated(!!j.authenticated))
+      .catch(() => setIsAuthenticated(false));
+  }, []);
+
+  // Load position from URL on mount (run IMMEDIATELY, before any other effects)
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlX = urlParams.get('x');
+    const urlY = urlParams.get('y');
+    
+    if (urlX !== null && urlY !== null) {
+      const x = parseInt(urlX);
+      const y = parseInt(urlY);
+      
+      if (!isNaN(x) && !isNaN(y)) {
+        console.log(`URL parameters found: x=${urlX}, y=${urlY}`);
+        
+        // Navigate immediately, don't wait
+        console.log(`Navigating to URL position: (${x}, ${y})`);
+        navigateToPosition(x, y);
+        
+        // Clear flag after navigation is complete
+        setTimeout(() => {
+          console.log('Initial navigation complete, resuming URL updates');
+          setIsInitialNavigation(false);
+        }, 1000); // Longer delay to ensure navigation is complete
+      } else {
+        // Invalid URL params, clear flag immediately
+        console.log('Invalid URL parameters, clearing initial navigation flag');
+        setIsInitialNavigation(false);
+      }
+    } else {
+      console.log('No URL parameters found, will use default (0,0) position');
+      // No URL params, clear flag immediately
+      setIsInitialNavigation(false);
+    }
+  }, []); // Run once on mount, IMMEDIATELY
+
+  // Calculate the center hexagon position based on current pan/zoom
+  const calculateCenterHexagon = useCallback(() => {
+    if (!containerRef.current) return { x: 0, y: 0 };
+
+    const container = containerRef.current;
+    const containerWidth = container.clientWidth;
+    const containerHeight = container.clientHeight;
+    
+    // Calculate the center point of the viewport
+    const centerX = containerWidth / 2;
+    const centerY = containerHeight / 2;
+    
+    // Convert screen coordinates to hexagon coordinates
+    const stepX = baseHexSize * 1.0 * zoom;
+    const stepY = baseHexSize * Math.sqrt(3) * 1.4 * zoom;
+    
+    // Calculate which hexagon is closest to the center
+    const hexX = Math.round((-pan.x + centerX) / stepX);
+    const hexY = Math.round((-pan.y + centerY) / stepY);
+    
+    return { x: hexX, y: hexY };
+  }, [pan, zoom]);
+
+  // Update center hexagon position when pan/zoom changes (but not during initial navigation)
+  useEffect(() => {
+    // Skip if we're in the middle of initial navigation
+    if (isInitialNavigation) {
+      console.log('Skipping center calculation during initial navigation');
+      return;
+    }
+    
+    const newCenter = calculateCenterHexagon();
+    setCenterHexagon(newCenter);
+    
+    // Update input fields to show current center
+    setJumpX(newCenter.x.toString());
+    setJumpY(newCenter.y.toString());
+    
+    // Update URL with current position
+    updateURL(newCenter.x, newCenter.y);
+  }, [pan, zoom, calculateCenterHexagon, isInitialNavigation]);
+
+  // Update URL with current position
+  const updateURL = useCallback((x: number, y: number) => {
+    console.log(`Updating URL to: (${x}, ${y})`);
+    const url = new URL(window.location.href);
+    url.searchParams.set('x', x.toString());
+    url.searchParams.set('y', y.toString());
+    window.history.replaceState({}, '', url.toString());
+  }, []);
+
+  // Navigate to a specific position
+  const navigateToPosition = useCallback((x: number, y: number) => {
+    if (!containerRef.current) {
+      console.log('Container not ready for navigation');
+      return;
+    }
+    
+    // Calculate the position of the target hexagon
+    const hexX = x * baseHexSize * 1.0;
+    const hexY = y * baseHexSize * Math.sqrt(3) * 1.4 + (x % 2) * baseHexSize * Math.sqrt(3) * 0.7;
+    
+    // Center the target hexagon on screen
+    const container = containerRef.current;
+    const containerWidth = container.clientWidth;
+    const containerHeight = container.clientHeight;
+    
+    const centerX = containerWidth / 2 - hexX * zoom;
+    const centerY = containerHeight / 2 - hexY * zoom;
+    
+    console.log(`Navigating to (${x}, ${y}): container=${containerWidth}x${containerHeight}, hex=(${hexX}, ${hexY}), pan=(${centerX}, ${centerY}), zoom=${zoom}`);
+    
+    setPan({ x: centerX, y: centerY });
+  }, [zoom]);
 
   // Callback to refresh a specific tile after generation
   const handleTileGenerated = useCallback((x: number, y: number) => {
@@ -714,9 +834,14 @@ const HexagonalGrid: React.FC = () => {
     }
   }, [handleWheel]);
 
-  // Center view on (0,0) at startup
+  // Center view on (0,0) at startup (only if no URL parameters)
   useEffect(() => {
-    if (containerRef.current) {
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlX = urlParams.get('x');
+    const urlY = urlParams.get('y');
+    
+    // Only center on (0,0) if no URL parameters are present
+    if (urlX === null && urlY === null && containerRef.current) {
       const containerWidth = containerRef.current.clientWidth;
       const containerHeight = containerRef.current.clientHeight;
       
@@ -741,21 +866,9 @@ const HexagonalGrid: React.FC = () => {
       return;
     }
     
-    // Calculate the position of the target hexagon
-    const hexX = x * baseHexSize * 1.0;
-    const hexY = y * baseHexSize * Math.sqrt(3) * 1.4 + (x % 2) * baseHexSize * Math.sqrt(3) * 0.7;
-    
-    // Center the target hexagon on screen
-    if (containerRef.current) {
-      const containerWidth = containerRef.current.clientWidth;
-      const containerHeight = containerRef.current.clientHeight;
-      
-      const newPanX = containerWidth / 2 - hexX * zoom;
-      const newPanY = containerHeight / 2 - hexY * zoom;
-      
-      setPan({ x: newPanX, y: newPanY });
-    }
-  }, [jumpX, jumpY, zoom]);
+    // Use the new navigateToPosition function
+    navigateToPosition(x, y);
+  }, [jumpX, jumpY, navigateToPosition]);
 
   return (
     <div className="hexagonal-grid-container">
@@ -785,6 +898,8 @@ const HexagonalGrid: React.FC = () => {
               size={baseHexSize}
               thumbnailSrc={thumbnailCache.get(`${x}_${y}`)}
               onTileGenerated={handleTileGenerated}
+              isCenter={x === centerHexagon.x && y === centerHexagon.y}
+              isAuthenticated={isAuthenticated || false}
             />
           ))}
         </div>

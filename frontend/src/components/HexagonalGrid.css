@@ -40,6 +40,16 @@
   user-drag: none;
 }
 
+/* Center hexagon highlighting */
+.center-hexagon {
+  box-shadow: 0 0 0 3px #00ff00, 0 0 0 5px rgba(0, 255, 0, 0.3);
+  z-index: 10;
+}
+
+.center-hexagon .hexagon-image {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 2px #00ff00;
+}
+
 .hexagon-image {
   object-fit: cover;
   border-radius: 8px;
