@@ -1,0 +1,37 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: backend-runtime
+    image: hexagen-backend:latest
+    container_name: hexagen-backend
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - USE_MASK_IMAGE_DATA_URI=1
+    volumes:
+      - ./backend/images:/app/backend/images
+      - ./backend/noise:/app/backend/noise
+      - ./backend/templates:/app/backend/templates
+      - ./backend/.env:/app/backend/.env:ro
+      - ./backend/thumbnails:/app/backend/thumbnails
+      - backend-logs:/app/backend/logs
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: frontend-runtime
+    image: hexagen-frontend:latest
+    container_name: hexagen-frontend
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+
+volumes:
+  backend-thumbnails:
+  backend-logs: 

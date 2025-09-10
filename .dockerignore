@@ -1,0 +1,12 @@
+node_modules
+frontend/node_modules
+backend/node_modules
+backend/images
+backend/thumbnails
+backend/logs
+backend/.env
+.git
+.gitignore
+npm-debug.log
+yarn-error.log
+.DS_Store 

@@ -7,6 +7,17 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
+// Resolve backend root in dev (scripts) and prod (dist/scripts)
+function resolveBackendRoot(currentDir: string): string {
+  const candidate = path.resolve(currentDir, '..');
+  const templatesAtCandidate = path.join(candidate, 'templates');
+  if (fs.existsSync(templatesAtCandidate)) return candidate;
+  return path.resolve(currentDir, '..', '..');
+}
+const BACKEND_ROOT = resolveBackendRoot(__dirname);
+const TEMPLATES_DIR = path.join(BACKEND_ROOT, 'templates');
+const TEMP_DIR = path.join(BACKEND_ROOT, 'temp');
+
 interface CropOptions {
   inputDir: string;
   outputDir: string;
@@ -24,9 +35,12 @@ class HexagonCropper {
   async cropHexagons(): Promise<void> {
     const { inputDir, outputDir, imageSize, hexagonSize } = this.options;
     
-    // Ensure output directory exists
+    // Ensure output and temp directories exist
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true });
+    }
+    if (!fs.existsSync(TEMP_DIR)) {
+      fs.mkdirSync(TEMP_DIR, { recursive: true });
     }
 
     // Get all image files from input directory
@@ -58,8 +72,11 @@ class HexagonCropper {
     const cropSize = hexagonSize;
     
     // Create a mask for the hexagon shape
-    const maskPath = path.join("templates", "mask.png");
-    const rescaledPath = path.join("temp", "rescaled.png");
+    const maskPath = path.join(TEMPLATES_DIR, 'mask.png');
+    if (!fs.existsSync(TEMP_DIR)) {
+      fs.mkdirSync(TEMP_DIR, { recursive: true });
+    }
+    const rescaledPath = path.join(TEMP_DIR, 'rescaled.png');
     
     try {
       // Apply mask and crop
@@ -101,8 +118,8 @@ async function main() {
   }
 
   const cropper = new HexagonCropper({
-    inputDir: path.join(__dirname, '../images'),
-    outputDir: path.join(__dirname, '../cropped'),
+    inputDir: path.join(BACKEND_ROOT, 'images'),
+    outputDir: path.join(BACKEND_ROOT, 'cropped'),
     imageSize: 512,
     hexagonSize: 400
   });

@@ -13,14 +13,27 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Resolve backend root that works for both dev (src) and prod (dist/src)
+function resolveBackendRoot(currentDir: string): string {
+  const candidate = path.resolve(currentDir, '..'); // dev: backend/src -> backend; prod: dist/src -> dist
+  const templatesAtCandidate = path.join(candidate, 'templates');
+  if (fs.existsSync(templatesAtCandidate)) return candidate;
+  // Fallback: go one more up (prod): dist/src -> backend
+  return path.resolve(currentDir, '..', '..');
+}
+const BACKEND_ROOT = resolveBackendRoot(__dirname);
+const IMAGES_DIR = path.join(BACKEND_ROOT, 'images');
+const THUMBNAILS_DIR = path.join(BACKEND_ROOT, 'thumbnails');
+const TEMPLATES_DIR = path.join(BACKEND_ROOT, 'templates');
+
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
 
 // Serve static files from images, thumbnails, and templates directories
-app.use('/images', express.static(path.join(__dirname, '../images')));
-app.use('/thumbnails', express.static(path.join(__dirname, '../thumbnails')));
-app.use('/templates', express.static(path.join(__dirname, '../templates')));
+app.use('/images', express.static(IMAGES_DIR));
+app.use('/thumbnails', express.static(THUMBNAILS_DIR));
+app.use('/templates', express.static(TEMPLATES_DIR));
 
 // Hexagon endpoint
 app.get('/api/hexagon/:x/:y', async (req, res) => {
@@ -36,9 +49,9 @@ app.get('/api/hexagon/:x/:y', async (req, res) => {
     }
     
     // Check if specific hexagon image exists (try .jpg first, then .png, then .svg)
-    const imagePathJpg = path.join(__dirname, '../images', `${xNum}_${yNum}.jpg`);
-    const imagePathPng = path.join(__dirname, '../images', `${xNum}_${yNum}.png`);
-    const imagePathSvg = path.join(__dirname, '../images', `${xNum}_${yNum}.svg`);
+    const imagePathJpg = path.join(IMAGES_DIR, `${xNum}_${yNum}.jpg`);
+    const imagePathPng = path.join(IMAGES_DIR, `${xNum}_${yNum}.png`);
+    const imagePathSvg = path.join(IMAGES_DIR, `${xNum}_${yNum}.svg`);
     
     const hasCustomImage = fs.existsSync(imagePathJpg) || fs.existsSync(imagePathPng) || fs.existsSync(imagePathSvg);
     
@@ -49,9 +62,9 @@ app.get('/api/hexagon/:x/:y', async (req, res) => {
     
     // Check if thumbnail is requested (default behavior)
     if (thumbnail !== 'false') {
-      const thumbnailPathJpg = path.join(__dirname, '../thumbnails', `${xNum}_${yNum}.jpg`);
-      const thumbnailPathPng = path.join(__dirname, '../thumbnails', `${xNum}_${yNum}.png`);
-      const thumbnailPathSvg = path.join(__dirname, '../thumbnails', `${xNum}_${yNum}.svg`);
+      const thumbnailPathJpg = path.join(THUMBNAILS_DIR, `${xNum}_${yNum}.jpg`);
+      const thumbnailPathPng = path.join(THUMBNAILS_DIR, `${xNum}_${yNum}.png`);
+      const thumbnailPathSvg = path.join(THUMBNAILS_DIR, `${xNum}_${yNum}.svg`);
       
       if (fs.existsSync(thumbnailPathJpg)) {
         res.setHeader('Content-Type', 'image/jpeg');
@@ -87,12 +100,12 @@ app.get('/api/hexagon/:x/:y', async (req, res) => {
           
           if (sourceImagePath) {
             // Ensure thumbnails directory exists
-            const thumbnailsDir = path.join(__dirname, '../thumbnails');
-            if (!fs.existsSync(thumbnailsDir)) {
-              fs.mkdirSync(thumbnailsDir, { recursive: true });
+            if (!fs.existsSync(THUMBNAILS_DIR)) {
+              fs.mkdirSync(THUMBNAILS_DIR, { recursive: true });
               console.log('Created thumbnails directory');
             }
             
+            const thumbnailPathJpg = path.join(THUMBNAILS_DIR, `${xNum}_${yNum}.jpg`);
             console.log(`Generating thumbnail: ${thumbnailPathJpg}`);
             // Generate thumbnail
             await execAsync(`magick "${sourceImagePath}" -resize 100x100 "${thumbnailPathJpg}"`);
@@ -134,9 +147,9 @@ app.get('/api/hexagon/:x/:y', async (req, res) => {
         res.sendFile(biomePath);
       } else {
         // Fallback to legacy hexagon template if biome assets are missing
-        const templatePathJpg = path.join(__dirname, '../templates', 'hexagon_template.jpg');
-        const templatePathPng = path.join(__dirname, '../templates', 'hexagon_template.png');
-        const templatePathSvg = path.join(__dirname, '../templates', 'hexagon_template.svg');
+        const templatePathJpg = path.join(TEMPLATES_DIR, 'hexagon_template.jpg');
+        const templatePathPng = path.join(TEMPLATES_DIR, 'hexagon_template.png');
+        const templatePathSvg = path.join(TEMPLATES_DIR, 'hexagon_template.svg');
         if (fs.existsSync(templatePathJpg)) {
           res.setHeader('Content-Type', 'image/jpeg');
           res.sendFile(templatePathJpg);
@@ -163,9 +176,9 @@ app.get('/api/hexagon/:x/:y', async (req, res) => {
 async function resolveHexImage(xNum: number, yNum: number, wantThumbnail: boolean): Promise<{ buffer: Buffer; contentType: string } | null> {
   // Thumbnail preference
   if (wantThumbnail) {
-    const thumbnailPathJpg = path.join(__dirname, '../thumbnails', `${xNum}_${yNum}.jpg`);
-    const thumbnailPathPng = path.join(__dirname, '../thumbnails', `${xNum}_${yNum}.png`);
-    const thumbnailPathSvg = path.join(__dirname, '../thumbnails', `${xNum}_${yNum}.svg`);
+    const thumbnailPathJpg = path.join(THUMBNAILS_DIR, `${xNum}_${yNum}.jpg`);
+    const thumbnailPathPng = path.join(THUMBNAILS_DIR, `${xNum}_${yNum}.png`);
+    const thumbnailPathSvg = path.join(THUMBNAILS_DIR, `${xNum}_${yNum}.svg`);
     if (fs.existsSync(thumbnailPathJpg)) {
       return { buffer: fs.readFileSync(thumbnailPathJpg), contentType: 'image/jpeg' };
     } else if (fs.existsSync(thumbnailPathPng)) {
@@ -175,9 +188,9 @@ async function resolveHexImage(xNum: number, yNum: number, wantThumbnail: boolea
     }
     
     // Thumbnail doesn't exist, try to generate on-the-fly
-    const imagePathJpg = path.join(__dirname, '../images', `${xNum}_${yNum}.jpg`);
-    const imagePathPng = path.join(__dirname, '../images', `${xNum}_${yNum}.png`);
-    const imagePathSvg = path.join(__dirname, '../images', `${xNum}_${yNum}.svg`);
+    const imagePathJpg = path.join(IMAGES_DIR, `${xNum}_${yNum}.jpg`);
+    const imagePathPng = path.join(IMAGES_DIR, `${xNum}_${yNum}.png`);
+    const imagePathSvg = path.join(IMAGES_DIR, `${xNum}_${yNum}.svg`);
     const hasCustomImage = fs.existsSync(imagePathJpg) || fs.existsSync(imagePathPng) || fs.existsSync(imagePathSvg);
     
     if (hasCustomImage) {
@@ -198,28 +211,24 @@ async function resolveHexImage(xNum: number, yNum: number, wantThumbnail: boolea
         
         if (sourceImagePath) {
           // Ensure thumbnails directory exists
-          const thumbnailsDir = path.join(__dirname, '../thumbnails');
-          if (!fs.existsSync(thumbnailsDir)) {
-            fs.mkdirSync(thumbnailsDir, { recursive: true });
+          if (!fs.existsSync(THUMBNAILS_DIR)) {
+            fs.mkdirSync(THUMBNAILS_DIR, { recursive: true });
           }
           
-          // Generate thumbnail
+          const thumbnailPathJpg = path.join(THUMBNAILS_DIR, `${xNum}_${yNum}.jpg`);
           await execAsync(`magick "${sourceImagePath}" -resize 100x100 "${thumbnailPathJpg}"`);
-          
-          // Return the newly generated thumbnail
           return { buffer: fs.readFileSync(thumbnailPathJpg), contentType: 'image/jpeg' };
         }
       } catch (error) {
-        console.error(`Error generating thumbnail for ${xNum}_${yNum}:`, error);
-        // Fall through to serve full image
+        console.error('Error generating thumbnail on-the-fly:', error);
       }
     }
   }
-
-  // Full image fallback chain
-  const imagePathJpg = path.join(__dirname, '../images', `${xNum}_${yNum}.jpg`);
-  const imagePathPng = path.join(__dirname, '../images', `${xNum}_${yNum}.png`);
-  const imagePathSvg = path.join(__dirname, '../images', `${xNum}_${yNum}.svg`);
+  
+  // Fall back to full image or biome template
+  const imagePathJpg = path.join(IMAGES_DIR, `${xNum}_${yNum}.jpg`);
+  const imagePathPng = path.join(IMAGES_DIR, `${xNum}_${yNum}.png`);
+  const imagePathSvg = path.join(IMAGES_DIR, `${xNum}_${yNum}.svg`);
   if (fs.existsSync(imagePathJpg)) {
     return { buffer: fs.readFileSync(imagePathJpg), contentType: 'image/jpeg' };
   } else if (fs.existsSync(imagePathPng)) {
@@ -227,17 +236,14 @@ async function resolveHexImage(xNum: number, yNum: number, wantThumbnail: boolea
   } else if (fs.existsSync(imagePathSvg)) {
     return { buffer: fs.readFileSync(imagePathSvg), contentType: 'image/svg+xml' };
   }
-
-      // Procedural biome template
-      const height = getHeightAt(xNum, yNum);
-      const biomePath = getBiomeTemplatePath(height);
-      if (biomePath) {
-        return { buffer: fs.readFileSync(biomePath), contentType: 'image/png' };
-      }
-
-  // Last resort: svg
-  const svgHexagon = createSVGHexagon(xNum, yNum);
-  return { buffer: Buffer.from(svgHexagon, 'utf8'), contentType: 'image/svg+xml' };
+  
+  const height = getHeightAt(xNum, yNum);
+  const biomePath = getBiomeTemplatePath(height);
+  if (biomePath) {
+    return { buffer: fs.readFileSync(biomePath), contentType: 'image/png' };
+  }
+  
+  return null;
 }
 
 // Batch endpoint: fetch many hexes in one request
@@ -274,21 +280,16 @@ app.post('/api/hexagons/batch', async (req, res) => {
 // Helper function to create SVG hexagon
 function createSVGHexagon(x: number, y: number): string {
   const size = 50;
-  const color = `hsl(${(x * 137.5 + y * 89.3) % 360}, 70%, 60%)`;
-  
-  return `
-    <svg width="${size * 2}" height="${size * 2}" xmlns="http://www.w3.org/2000/svg">
-      <polygon 
-        points="${size},0 ${size * 1.5},${size * 0.866} ${size * 1.5},${size * 1.732} ${size},${size * 2} ${size * 0.5},${size * 1.732} ${size * 0.5},${size * 0.866}" 
-        fill="${color}" 
-        stroke="#333" 
-        stroke-width="2"
-      />
-      <text x="${size}" y="${size + 5}" text-anchor="middle" font-family="Arial" font-size="12" fill="#333">
-        ${x},${y}
-      </text>
-    </svg>
-  `;
+  const width = size * 2;
+  const height = Math.sqrt(3) * size;
+  const points: string[] = [];
+  for (let i = 0; i < 6; i++) {
+    const angle = (Math.PI / 3) * i + Math.PI / 6;
+    const px = size + size * Math.cos(angle);
+    const py = height / 2 + size * Math.sin(angle);
+    points.push(`${px},${py}`);
+  }
+  return `<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><polygon points="${points.join(' ')}" fill="hsl(${(x * 50 + y * 20) % 360}, 70%, 60%)" stroke="black" stroke-width="1"/></svg>`;
 }
 
 // Health check endpoint
@@ -351,7 +352,7 @@ app.post('/api/generate-tile', async (req, res) => {
     }
     
     // Check if tile already exists
-    const imagesDir = path.join(__dirname, '../images');
+    const imagesDir = IMAGES_DIR;
     const imagePathJpg = path.join(imagesDir, `${xNum}_${yNum}.jpg`);
     const imagePathPng = path.join(imagesDir, `${xNum}_${yNum}.png`);
     const imagePathSvg = path.join(imagesDir, `${xNum}_${yNum}.svg`);
@@ -391,12 +392,38 @@ app.post('/api/generate-tile', async (req, res) => {
     formData.append('image[]', imageBuffer, `coordinate_${xNum}_${yNum}.jpg`);
     
     // Add mask file (convert to JPG)
-    const maskPath = path.join(__dirname, '../templates', 'mask.png');
+    const maskPath = path.join(TEMPLATES_DIR, 'mask.png');
     if (fs.existsSync(maskPath)) {
-      const maskJpgPath = path.join(__dirname, '../templates', 'mask.jpg');
-      await execAsync(`magick "${maskPath}" "${maskJpgPath}"`);
-      const maskBuffer = fs.readFileSync(maskJpgPath);
-      formData.append('mask[]', maskBuffer, 'mask.jpg');
+      const maskJpgPath = path.join(TEMPLATES_DIR, 'mask.jpg');
+      try {
+        await execAsync(`magick "${maskPath}" "${maskJpgPath}"`);
+      } catch (e) {
+        console.warn('Mask JPG conversion failed, will try PNG directly:', e);
+      }
+      let maskFilePath = maskJpgPath;
+      try {
+        const stat = fs.existsSync(maskJpgPath) ? fs.statSync(maskJpgPath) : null;
+        if (!stat || stat.size === 0) {
+          console.warn('Mask JPG missing or empty, falling back to PNG');
+          maskFilePath = maskPath;
+        }
+      } catch (e) {
+        console.warn('Error checking mask JPG, falling back to PNG:', e);
+        maskFilePath = maskPath;
+      }
+      const maskBuffer = fs.readFileSync(maskFilePath);
+      console.log('Mask buffer size:', maskBuffer.length);
+
+      // If configured, send mask as base64 data URI via 'maskImage' (required by some providers)
+      if (process.env.USE_MASK_IMAGE_DATA_URI === '1') {
+        const ext = path.extname(maskFilePath).toLowerCase();
+        const mime = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/png';
+        const dataUri = `data:${mime};base64,${maskBuffer.toString('base64')}`;
+        formData.append('maskImage', dataUri);
+      } else {
+        // Default: send as multipart file field used locally
+        formData.append('mask[]', maskBuffer, path.basename(maskFilePath));
+      }
     }
     
     // Make API request
@@ -480,7 +507,7 @@ app.post('/api/generate-tile', async (req, res) => {
         const { promisify } = require('util');
         const execAsync = promisify(exec);
         
-        const thumbnailPath = path.join(__dirname, '../thumbnails', `${xNum}_${yNum}.jpg`);
+        const thumbnailPath = path.join(THUMBNAILS_DIR, `${xNum}_${yNum}.jpg`);
         await execAsync(`magick "${finalImagePath}" -resize 100x100 "${thumbnailPath}"`);
         console.log(`Thumbnail generated at ${thumbnailPath}`);
       } catch (thumbnailError) {
@@ -495,7 +522,7 @@ app.post('/api/generate-tile', async (req, res) => {
       if (jpgImagePath && fs.existsSync(jpgImagePath)) {
         fs.unlinkSync(jpgImagePath);
       }
-      const maskJpgPath = path.join(__dirname, '../templates', 'mask.jpg');
+      const maskJpgPath = path.join(TEMPLATES_DIR, 'mask.jpg');
       if (fs.existsSync(maskJpgPath)) {
         fs.unlinkSync(maskJpgPath);
       }
@@ -522,7 +549,7 @@ app.post('/api/generate-tile', async (req, res) => {
       if (jpgImagePath && fs.existsSync(jpgImagePath)) {
         fs.unlinkSync(jpgImagePath);
       }
-      const maskJpgPath = path.join(__dirname, '../templates', 'mask.jpg');
+      const maskJpgPath = path.join(TEMPLATES_DIR, 'mask.jpg');
       if (fs.existsSync(maskJpgPath)) {
         fs.unlinkSync(maskJpgPath);
       }

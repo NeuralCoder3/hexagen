@@ -1,6 +1,15 @@
 import fs from 'fs';
 import path from 'path';
 
+// Resolve backend root that works for both dev (src) and prod (dist/src)
+function resolveBackendRoot(currentDir: string): string {
+  const candidate = path.resolve(currentDir, '..');
+  const templatesAtCandidate = path.join(candidate, 'templates');
+  if (fs.existsSync(templatesAtCandidate)) return candidate;
+  return path.resolve(currentDir, '..', '..');
+}
+const BACKEND_ROOT = resolveBackendRoot(__dirname);
+
 // Perlin noise implementation
 class Perlin2D {
   private permutation: number[];
@@ -97,7 +106,8 @@ export function getHeightAt(x: number, y: number): number {
 
 // Map height to biome template file
 export function getBiomeTemplatePath(height: number, folder: string | undefined = undefined): string | null {
-  const templatesDir = path.join(__dirname, '../' + (folder || "templates"));
+  const subFolder = folder || 'templates';
+  const templatesDir = path.join(BACKEND_ROOT, subFolder);
   const entries: Array<{ threshold: number; file: string }> = [
     { threshold: 0.50, file: 'water.png' },
     { threshold: 0.51, file: 'sand.png' },

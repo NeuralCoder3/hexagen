@@ -13,26 +13,30 @@ import { extractCenterHexagon, DEFAULT_HEX_SIZE, DEFAULT_CANVAS_SIZE } from './u
 const hexSize = DEFAULT_HEX_SIZE; // Base hexagon size (matches frontend baseHexSize)
 const canvasSize = DEFAULT_CANVAS_SIZE;
 
+// Resolve backend project root (when compiled, __dirname will be dist/scripts)
+const PROJECT_ROOT = path.resolve(__dirname, '..');
+const IMAGES_DIR = path.join(PROJECT_ROOT, 'images');
+const TEMPLATES_DIR = path.join(PROJECT_ROOT, 'templates');
+const TEMP_DIR = path.join(PROJECT_ROOT, 'temp');
+
 // Get hexagon image path (specific image, biome template, or fallback)
 function getHexagonImagePath(x: number, y: number, noise: boolean): string {
-const suffixes = ["jpg", "png", "svg"];
-  const imagesDir = path.join(__dirname, '../images');
-  const templatesDir = path.join(__dirname, '../templates');
+  const suffixes = ["jpg", "png", "svg"];
   
   // Check for specific hexagon image
   for (const suffix of suffixes) {
-    const imagePath = path.join(imagesDir, `${x}_${y}.${suffix}`);
+    const imagePath = path.join(IMAGES_DIR, `${x}_${y}.${suffix}`);
     if (fs.existsSync(imagePath)) return imagePath;
   }
   
   // Use biome template
   const height = getHeightAt(x, y);
-  const biomePath = getBiomeTemplatePath(height, noise && "noise");
+  const biomePath = getBiomeTemplatePath(height, noise ? "noise" : undefined);
   if (biomePath) return biomePath;
   
   // Fallback to generic template
   for (const suffix of suffixes) {
-    const templatePath = path.join(templatesDir, `hexagon_template.${suffix}`);
+    const templatePath = path.join(TEMPLATES_DIR, `hexagon_template.${suffix}`);
     if (fs.existsSync(templatePath)) return templatePath;
   }
   
@@ -54,15 +58,15 @@ function getHexagonNeighbors(x: number, y: number): Array<{ x: number; y: number
   
   // Hexagonal grid neighbors - proper hex grid layout
   if (x % 2 == 0) {
-  neighbors.push({ x: x - 1, y: y - 1 });
-  neighbors.push({ x: x + 1, y: y - 1 });
-  neighbors.push({ x: x - 1, y: y });
-  neighbors.push({ x: x + 1, y: y });
-  }else {
-  neighbors.push({ x: x - 1, y: y + 0 });
-  neighbors.push({ x: x + 1, y: y + 0 });
-  neighbors.push({ x: x - 1, y: y + 1 });
-  neighbors.push({ x: x + 1, y: y + 1 });
+    neighbors.push({ x: x - 1, y: y - 1 });
+    neighbors.push({ x: x + 1, y: y - 1 });
+    neighbors.push({ x: x - 1, y: y });
+    neighbors.push({ x: x + 1, y: y });
+  } else {
+    neighbors.push({ x: x - 1, y: y + 0 });
+    neighbors.push({ x: x + 1, y: y + 0 });
+    neighbors.push({ x: x - 1, y: y + 1 });
+    neighbors.push({ x: x + 1, y: y + 1 });
   }
   
   return neighbors;
@@ -74,7 +78,7 @@ async function generateCoordinateImage(centerX: number, centerY: number, outputP
   const canvasSize = DEFAULT_CANVAS_SIZE;
   
   // Create temporary directory for intermediate files
-  const tempDir = path.join(__dirname, '../temp');
+  const tempDir = TEMP_DIR;
   if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir, { recursive: true });
   }
@@ -92,7 +96,7 @@ async function generateCoordinateImage(centerX: number, centerY: number, outputP
   
   // Create cropper instance
   const cropper = new HexagonCropper({
-    inputDir: path.join(__dirname, '../images'),
+    inputDir: IMAGES_DIR,
     outputDir: tempDir,
     imageSize: 512,
     hexagonSize: 392

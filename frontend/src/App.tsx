@@ -1,4 +1,3 @@
-import React from 'react';
 import HexagonalGrid from './components/HexagonalGrid';
 import './App.css';
 
