@@ -8,3 +8,4 @@ thumbnails/*.*
 *.js
 *.js.map
 *.d.ts.mapbackend/images/
+backend/images
