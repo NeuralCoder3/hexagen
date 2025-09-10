@@ -349,6 +349,41 @@
   justify-content: center;
 }
 
+.rate-limit-countdown {
+  background: #ff6b6b;
+  color: white;
+  padding: 10px;
+  border-radius: 8px;
+  margin: 10px 0;
+  text-align: center;
+  animation: pulse 1s infinite;
+}
+
+.rate-limit-countdown p {
+  margin: 0;
+  font-size: 14px;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.7; }
+  100% { opacity: 1; }
+}
+
+.concurrent-generation-warning {
+  background: #ffa726;
+  color: white;
+  padding: 10px;
+  border-radius: 8px;
+  margin: 10px 0;
+  text-align: center;
+}
+
+.concurrent-generation-warning p {
+  margin: 0;
+  font-size: 14px;
+}
+
 .generate-button {
   background: #4CAF50;
   border: none;

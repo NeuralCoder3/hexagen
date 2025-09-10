@@ -72,7 +72,11 @@ class HexagonCropper {
     if (!fs.existsSync(TEMP_DIR)) {
       fs.mkdirSync(TEMP_DIR, { recursive: true });
     }
-    const rescaledPath = path.join(TEMP_DIR, 'rescaled.png');
+    
+    // Use unique filename to prevent collisions during concurrent generation
+    const timestamp = Date.now();
+    const randomId = Math.random().toString(36).substring(2, 8);
+    const rescaledPath = path.join(TEMP_DIR, `rescaled_${timestamp}_${randomId}.png`);
     
     try {
       // Apply mask and crop

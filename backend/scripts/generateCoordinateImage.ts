@@ -61,8 +61,13 @@ async function generateCoordinateImage(centerX: number, centerY: number, outputP
     fs.mkdirSync(tempDir, { recursive: true });
   }
   
+  // Use unique prefix to prevent collisions during concurrent generation
+  const timestamp = Date.now();
+  const randomId = Math.random().toString(36).substring(2, 8);
+  const uniquePrefix = `${centerX}_${centerY}_${timestamp}_${randomId}`;
+  
   // Start with white background
-  let currentImage = path.join(tempDir, 'current.png');
+  let currentImage = path.join(tempDir, `current_${uniquePrefix}.png`);
   await execAsync(`magick -size ${canvasSize}x${canvasSize} xc:white PNG32:"${currentImage}"`);
   
   // Get center hexagon position (using same calculation as frontend)
@@ -97,15 +102,15 @@ async function generateCoordinateImage(centerX: number, centerY: number, outputP
         finalY >= -hexSize * 2 && finalY <= canvasSize + hexSize * 2) {
       
       // Crop the hexagon image first
-      const croppedHex = path.join(tempDir, `cropped_${hex.x}_${hex.y}.png`);
+      const croppedHex = path.join(tempDir, `cropped_${hex.x}_${hex.y}_${uniquePrefix}.png`);
       await cropper.cropSingleFile(hexImagePath, croppedHex);
       
       // Resize cropped hexagon image to proper size
-      const tempHex = path.join(tempDir, `hex_${hex.x}_${hex.y}.png`);
+      const tempHex = path.join(tempDir, `hex_${hex.x}_${hex.y}_${uniquePrefix}.png`);
       await execAsync(`magick "${croppedHex}" -resize ${hexSize * 2}x${hexSize * 2} "${tempHex}"`);
       
       // Composite onto current image
-      const nextImage = path.join(tempDir, `next_${hex.x}_${hex.y}.png`);
+      const nextImage = path.join(tempDir, `next_${hex.x}_${hex.y}_${uniquePrefix}.png`);
       await execAsync(`magick "${currentImage}" "${tempHex}" -geometry +${Math.round(finalX)}+${Math.round(finalY)} -composite "${nextImage}"`);
       
       // Update current image
@@ -116,15 +121,17 @@ async function generateCoordinateImage(centerX: number, centerY: number, outputP
   // Copy final result to output path
   await execAsync(`magick "${currentImage}" "${outputPath}"`);
   
-  // Clean up temporary files
+  // Clean up temporary files (only our unique files to avoid interfering with concurrent processes)
   try {
     const tempFiles = fs.readdirSync(tempDir);
     for (const file of tempFiles) {
-      const filePath = path.join(tempDir, file);
-      fs.unlinkSync(filePath);
+      // Only delete files that match our unique prefix
+      if (file.includes(uniquePrefix)) {
+        const filePath = path.join(tempDir, file);
+        fs.unlinkSync(filePath);
+      }
     }
-    fs.rmdirSync(tempDir);
-    console.log('Cleaned up temporary files');
+    console.log(`Cleaned up temporary files with prefix ${uniquePrefix}`);
   } catch (error) {
     console.warn('Warning: Could not clean up temporary files:', error);
   }

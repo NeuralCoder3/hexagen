@@ -30,6 +30,9 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
   const [showLoginCta, setShowLoginCta] = useState(false);
   const [canGenerateHere, setCanGenerateHere] = useState<boolean | null>(null);
   const [cannotReason, setCannotReason] = useState<string>('');
+  const [rateLimitCountdown, setRateLimitCountdown] = useState<number | null>(null);
+  const [generatingCoordinates, setGeneratingCoordinates] = useState<{ x: number; y: number } | null>(null);
+  const [generatingUser, setGeneratingUser] = useState<string | null>(null);
 
   useEffect(() => {
     // Preload auth status (once)
@@ -37,6 +40,70 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
       fetch('/api/auth/status', { credentials: 'include' }).then(r => r.json()).then(j => setIsAuthenticated(!!j.authenticated)).catch(() => setIsAuthenticated(false));
     }
   }, [isAuthenticated]);
+
+  // Countdown timer for rate limiting
+  useEffect(() => {
+    if (rateLimitCountdown !== null && rateLimitCountdown > 0) {
+      const timer = setTimeout(() => {
+        setRateLimitCountdown(rateLimitCountdown - 1);
+      }, 1000);
+      return () => clearTimeout(timer);
+    } else if (rateLimitCountdown === 0) {
+      // Countdown reached zero, recheck if generation is now allowed
+      setRateLimitCountdown(null);
+      if (showGenerateForm && isAuthenticated) {
+        checkCanGenerate();
+      }
+    }
+  }, [rateLimitCountdown, showGenerateForm, isAuthenticated]);
+
+  const checkCanGenerate = async () => {
+    try {
+      const canRes = await fetch(`/api/hexagon/${x}/${y}/can-generate`, { credentials: 'include' });
+      const canJson = await canRes.json();
+      if (canRes.ok && canJson.allowed) {
+        setCanGenerateHere(true);
+        setCannotReason('');
+        setRateLimitCountdown(null);
+        setIsGenerating(false);
+        setGeneratingCoordinates(null);
+        setGeneratingUser(null);
+      } else {
+        const reason = canJson?.reason || 'Tile cannot be generated here yet.';
+        setCanGenerateHere(false);
+        setCannotReason(reason);
+        
+        // Check if this is a rate limiting response
+        if (canJson.timeUntilNext) {
+          setRateLimitCountdown(canJson.timeUntilNext);
+        } else {
+          setRateLimitCountdown(null);
+        }
+        
+        // Check if this is a concurrent generation response
+        if (canJson.isGenerating) {
+          setIsGenerating(true);
+          if (canJson.generatingCoordinates) {
+            setGeneratingCoordinates(canJson.generatingCoordinates);
+          }
+          if (canJson.generatingUser) {
+            setGeneratingUser(canJson.generatingUser);
+          }
+        } else {
+          setIsGenerating(false);
+          setGeneratingCoordinates(null);
+          setGeneratingUser(null);
+        }
+      }
+    } catch (e) {
+      setCanGenerateHere(false);
+      setCannotReason('Unable to check whether tile can be generated.');
+      setRateLimitCountdown(null);
+      setIsGenerating(false);
+      setGeneratingCoordinates(null);
+      setGeneratingUser(null);
+    }
+  };
 
   useEffect(() => {
     if (thumbnailSrc) {
@@ -79,24 +146,8 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
         } else {
           // Tile doesn't exist, show generation form or login CTA
           if (isAuthenticated) {
-            // Check if generation is allowed at this coordinate
-            try {
-              const canRes = await fetch(`/api/hexagon/${x}/${y}/can-generate`, { credentials: 'include' });
-              const canJson = await canRes.json();
-              setShowGenerateForm(true);
-              if (canRes.ok && canJson.allowed) {
-                setCanGenerateHere(true);
-                setCannotReason('');
-              } else {
-                const reason = canJson?.reason || 'Tile cannot be generated here yet.';
-                setCanGenerateHere(false);
-                setCannotReason(reason);
-              }
-            } catch (e) {
-              setShowGenerateForm(true);
-              setCanGenerateHere(false);
-              setCannotReason('Unable to check whether tile can be generated.');
-            }
+            setShowGenerateForm(true);
+            await checkCanGenerate();
           } else {
             setShowGenerateForm(false);
             setShowFullImage(false);
@@ -138,11 +189,18 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
         // Success - refresh the image
         setShowGenerateForm(false);
         setGeneratePrompt('');
+        setRateLimitCountdown(null);
         // Notify parent component to refresh this tile
         onTileGenerated?.(x, y);
       } else {
         if (response.status === 403) {
           alert('Tile generation is only allowed adjacent (or one apart) to an existing tile.');
+        } else if (response.status === 429) {
+          // Rate limiting error
+          if (data.timeUntilNext) {
+            setRateLimitCountdown(data.timeUntilNext);
+          }
+          alert(`Rate limited: ${data.error}`);
         } else {
           alert(`Error: ${data.error}`);
         }
@@ -193,6 +251,10 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
     setGeneratePrompt('');
     setCanGenerateHere(null);
     setCannotReason('');
+    setRateLimitCountdown(null);
+    setIsGenerating(false);
+    setGeneratingCoordinates(null);
+    setGeneratingUser(null);
   };
 
   // Calculate hexagon position (centered on 0,0) - adjusted spacing
@@ -276,10 +338,34 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
               <div className="generate-form">
                 <h3>Generate Tile at ({x}, {y})</h3>
                 {canGenerateHere === false ? (
-                  <p>{cannotReason}</p>
+                  <div>
+                    <p>{cannotReason}</p>
+                    {rateLimitCountdown !== null && rateLimitCountdown > 0 && (
+                      <div className="rate-limit-countdown">
+                        <p>⏰ Next generation available in: <strong>{rateLimitCountdown}s</strong></p>
+                      </div>
+                    )}
+                    {isGenerating && generatingCoordinates && (
+                      <div className="concurrent-generation-warning">
+                        <p>🔄 Currently generating tile at ({generatingCoordinates.x}, {generatingCoordinates.y})</p>
+                        {generatingUser && <p>By: {generatingUser}</p>}
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <>
                     <p>This tile doesn't exist yet. Enter a prompt to generate it:</p>
+                    {rateLimitCountdown !== null && rateLimitCountdown > 0 && (
+                      <div className="rate-limit-countdown">
+                        <p>⏰ Next generation available in: <strong>{rateLimitCountdown}s</strong></p>
+                      </div>
+                    )}
+                    {isGenerating && generatingCoordinates && (
+                      <div className="concurrent-generation-warning">
+                        <p>🔄 Currently generating tile at ({generatingCoordinates.x}, {generatingCoordinates.y})</p>
+                        {generatingUser && <p>By: {generatingUser}</p>}
+                      </div>
+                    )}
                     <textarea
                       value={generatePrompt}
                       onChange={(e) => setGeneratePrompt(e.target.value)}
@@ -296,7 +382,7 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
                     <>
                       <button 
                         onClick={handleGenerateTile}
-                        disabled={!generatePrompt.trim() || isGenerating}
+                        disabled={!generatePrompt.trim() || isGenerating || (rateLimitCountdown !== null && rateLimitCountdown > 0)}
                         className="generate-button"
                       >
                         {isGenerating ? 'Generating...' : 'Generate Tile'}
@@ -353,6 +439,10 @@ const HexagonalGrid: React.FC = () => {
 
   // Cache for thumbnails: key is `${x}_${y}`, value is object URL or data URL
   const [thumbnailCache] = useState<Map<string, string>>(() => new Map());
+  
+  // Polling state for updates
+  const [lastUpdateCheck, setLastUpdateCheck] = useState<number>(Date.now());
+  const [isPolling, setIsPolling] = useState<boolean>(true);
 
   // Callback to refresh a specific tile after generation
   const handleTileGenerated = useCallback((x: number, y: number) => {
@@ -361,6 +451,93 @@ const HexagonalGrid: React.FC = () => {
     // Trigger a re-render by updating a state that affects the grid
     setZoom(prevZoom => prevZoom + 0.001); // Tiny change to trigger re-render
   }, [thumbnailCache]);
+
+  // Poll for updates every 30 seconds
+  useEffect(() => {
+    if (!isPolling) return;
+
+    const pollForUpdates = async () => {
+      try {
+        const response = await fetch(`/api/updates?since=${lastUpdateCheck}`, {
+          credentials: 'include'
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          
+          if (data.hasUpdates && data.updated.length > 0) {
+            console.log(`Found ${data.updated.length} updated tiles:`, data.updated);
+            
+            // Clear cache for updated tiles to force re-fetch
+            data.updated.forEach((update: { x: number; y: number }) => {
+              thumbnailCache.delete(`${update.x}_${update.y}`);
+            });
+            
+            // Trigger a re-render to refresh the grid
+            setZoom(prevZoom => prevZoom + 0.001);
+          }
+          
+          // Update the last check time
+          setLastUpdateCheck(data.lastSystemUpdate || Date.now());
+        }
+      } catch (error) {
+        console.warn('Failed to check for updates:', error);
+      }
+    };
+
+    // Poll immediately on mount, then every 30 seconds
+    pollForUpdates();
+    const interval = setInterval(pollForUpdates, 30000);
+
+    return () => clearInterval(interval);
+  }, [isPolling, lastUpdateCheck, thumbnailCache]);
+
+  // Pause polling when user is interacting (optional optimization)
+  useEffect(() => {
+    const handleUserActivity = () => {
+      setIsPolling(true);
+    };
+
+    const handleUserInactivity = () => {
+      // Pause polling after 5 minutes of inactivity
+      setTimeout(() => {
+        setIsPolling(false);
+      }, 300000); // 5 minutes
+    };
+
+    // Listen for user activity
+    document.addEventListener('mousedown', handleUserActivity);
+    document.addEventListener('keydown', handleUserActivity);
+    document.addEventListener('scroll', handleUserActivity);
+    document.addEventListener('touchstart', handleUserActivity);
+
+    // Set up inactivity timer
+    let inactivityTimer: number;
+    const resetInactivityTimer = () => {
+      clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(handleUserInactivity, 300000); // 5 minutes
+    };
+
+    resetInactivityTimer();
+    document.addEventListener('mousedown', resetInactivityTimer);
+    document.addEventListener('keydown', resetInactivityTimer);
+    document.addEventListener('scroll', resetInactivityTimer);
+    document.addEventListener('touchstart', resetInactivityTimer);
+
+    return () => {
+      document.removeEventListener('mousedown', handleUserActivity);
+      document.removeEventListener('keydown', handleUserActivity);
+      document.removeEventListener('scroll', handleUserActivity);
+      document.removeEventListener('touchstart', handleUserActivity);
+      
+      document.removeEventListener('mousedown', resetInactivityTimer);
+      document.removeEventListener('keydown', resetInactivityTimer);
+      document.removeEventListener('scroll', resetInactivityTimer);
+      document.removeEventListener('touchstart', resetInactivityTimer);
+      
+      clearTimeout(inactivityTimer);
+    };
+  }, []);
 
   // Calculate visible hexagons based on viewport and zoom
   const getVisibleHexagons = useCallback(() => {
