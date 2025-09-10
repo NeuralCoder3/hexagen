@@ -43,10 +43,11 @@ function getHexagonImagePathForCoordinate(x: number, y: number, noise: boolean):
   throw new Error(`No image found for hexagon ${x},${y}`);
 }
 
-// Calculate hexagon positions (matching frontend logic)
+// Calculate hexagon positions (matching frontend logic exactly)
 function getHexagonPosition(x: number, y: number, size: number = 100): { x: number; y: number } {
   const hexX = x * size * 1.0;
-  const hexY = y * size * Math.sqrt(3) * 1.36 + (x % 2) * size * Math.sqrt(3) * 0.680;
+//   const hexY = y * size * Math.sqrt(3) * 1.4 + (x % 2) * size * Math.sqrt(3) * 0.7;
+const hexY = y * size * Math.sqrt(3) * 1.36 + (x % 2) * size * Math.sqrt(3) * 0.680;
   return { x: hexX, y: hexY };
 }
 
