@@ -25,6 +25,7 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
   const [showGenerateForm, setShowGenerateForm] = useState(false);
   const [generatePrompt, setGeneratePrompt] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [metadata, setMetadata] = useState<{ prompt?: string; createdAt?: string } | null>(null);
 
   useEffect(() => {
     if (thumbnailSrc) {
@@ -34,6 +35,18 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
       setLoading(true);
     }
   }, [thumbnailSrc]);
+
+  useEffect(() => {
+    if (showFullImage) {
+      // Fetch metadata when opening the popup
+      fetch(`/api/hexagon/${x}/${y}/metadata`)
+        .then(async (r) => (r.ok ? r.json() : null))
+        .then((json) => setMetadata(json))
+        .catch(() => setMetadata(null));
+    } else {
+      setMetadata(null);
+    }
+  }, [showFullImage, x, y]);
 
   const handleHexagonClick = async () => {
     // Only open popup if it wasn't a drag operation
@@ -189,6 +202,16 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
               <div className="modal-coords">
                 Hexagon at {x}, {y}
               </div>
+              {metadata && (
+                <div className="modal-metadata">
+                  {metadata.prompt && (
+                    <div><strong>Prompt:</strong> {metadata.prompt}</div>
+                  )}
+                  {metadata.createdAt && (
+                    <div><strong>Created:</strong> {new Date(metadata.createdAt).toLocaleString()}</div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         ),

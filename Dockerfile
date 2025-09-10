@@ -51,6 +51,8 @@ COPY --from=backend-deps /app/backend/node_modules ./node_modules
 # Copy non-TS runtime assets (templates)
 COPY backend/templates ./templates
 COPY backend/noise ./noise
+# Optionally serve frontend from backend when enabled
+COPY --from=frontend-build /app/frontend/dist /app/backend/public
 # Ensure directories exist; images will be mounted as a volume
 RUN mkdir -p /app/backend/images /app/backend/thumbnails
 

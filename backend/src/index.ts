@@ -25,6 +25,10 @@ const BACKEND_ROOT = resolveBackendRoot(__dirname);
 const IMAGES_DIR = path.join(BACKEND_ROOT, 'images');
 const THUMBNAILS_DIR = path.join(BACKEND_ROOT, 'thumbnails');
 const TEMPLATES_DIR = path.join(BACKEND_ROOT, 'templates');
+const METADATA_DIR = path.join(BACKEND_ROOT, 'metadata');
+if (!fs.existsSync(METADATA_DIR)) {
+  try { fs.mkdirSync(METADATA_DIR, { recursive: true }); } catch {}
+}
 
 // Middleware
 app.use(cors());
@@ -34,6 +38,26 @@ app.use(express.json({ limit: '2mb' }));
 app.use('/images', express.static(IMAGES_DIR));
 app.use('/thumbnails', express.static(THUMBNAILS_DIR));
 app.use('/templates', express.static(TEMPLATES_DIR));
+
+// Serve frontend build (optional single-port mode)
+if (process.env.SERVE_FRONTEND === '1') {
+  const FRONTEND_DIR = path.join(BACKEND_ROOT, 'public');
+  if (fs.existsSync(FRONTEND_DIR)) {
+    app.use(express.static(FRONTEND_DIR));
+    // API is under /api; everything else falls back to index.html
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api') || req.path.startsWith('/images') || req.path.startsWith('/thumbnails') || req.path.startsWith('/templates')) {
+        return next();
+      }
+      const indexPath = path.join(FRONTEND_DIR, 'index.html');
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.status(404).send('frontend index not found');
+      }
+    });
+  }
+}
 
 // Hexagon endpoint
 app.get('/api/hexagon/:x/:y', async (req, res) => {
@@ -496,9 +520,22 @@ app.post('/api/generate-tile', async (req, res) => {
         console.log(`Center hexagon extracted to ${centerHexPath}`);
       } catch (extractError) {
         console.error('Error extracting center hexagon:', extractError);
-        // Don't fail the whole request if extraction fails
         // Keep the original image if extraction fails
         finalImagePath = path.join(imagesDir, `${xNum}_${yNum}_org.png`);
+      }
+
+      // Persist metadata (prompt and creation time)
+      try {
+        const meta = {
+          x: xNum,
+          y: yNum,
+          prompt,
+          createdAt: new Date().toISOString()
+        };
+        const metaPath = path.join(METADATA_DIR, `${xNum}_${yNum}.json`);
+        fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+      } catch (e) {
+        console.warn('Failed to write metadata:', e);
       }
       
       // Generate thumbnail
@@ -512,7 +549,6 @@ app.post('/api/generate-tile', async (req, res) => {
         console.log(`Thumbnail generated at ${thumbnailPath}`);
       } catch (thumbnailError) {
         console.error('Error generating thumbnail:', thumbnailError);
-        // Don't fail the whole request if thumbnail generation fails
       }
       
       // Clean up temp files
@@ -558,6 +594,26 @@ app.post('/api/generate-tile', async (req, res) => {
     }
     
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Metadata endpoint for a hexagon
+app.get('/api/hexagon/:x/:y/metadata', (req, res) => {
+  const { x, y } = req.params as any;
+  const xNum = parseInt(x);
+  const yNum = parseInt(y);
+  if (Number.isNaN(xNum) || Number.isNaN(yNum)) {
+    return res.status(400).json({ error: 'Invalid coordinates' });
+  }
+  const metaPath = path.join(METADATA_DIR, `${xNum}_${yNum}.json`);
+  if (!fs.existsSync(metaPath)) {
+    return res.status(404).json({ error: 'No metadata' });
+  }
+  try {
+    const json = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+    return res.json(json);
+  } catch (e) {
+    return res.status(500).json({ error: 'Failed to read metadata' });
   }
 });
 
