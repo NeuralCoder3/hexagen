@@ -15,7 +15,25 @@ const hexSize = DEFAULT_HEX_SIZE; // Base hexagon size (matches frontend baseHex
 const canvasSize = DEFAULT_CANVAS_SIZE;
 
 // Resolve backend project root (when compiled, __dirname will be dist/scripts)
-const PROJECT_ROOT = path.resolve(__dirname, '..');
+function resolveBackendRoot(currentDir: string): string {
+  // In Docker: currentDir = /app/backend/dist/scripts, we want /app/backend
+  // In dev: currentDir = /path/to/backend/scripts, we want /path/to/backend
+  
+  // First try: go up one level (dev: scripts -> backend; prod: dist/scripts -> dist)
+  const candidate1 = path.resolve(currentDir, '..');
+  const templatesAtCandidate1 = path.join(candidate1, 'templates');
+  if (fs.existsSync(templatesAtCandidate1)) return candidate1;
+  
+  // Second try: go up two levels (prod: dist/scripts -> backend)
+  const candidate2 = path.resolve(currentDir, '..', '..');
+  const templatesAtCandidate2 = path.join(candidate2, 'templates');
+  if (fs.existsSync(templatesAtCandidate2)) return candidate2;
+  
+  // Fallback: return the two-levels-up path (should be /app/backend in Docker)
+  return candidate2;
+}
+
+const PROJECT_ROOT = resolveBackendRoot(__dirname);
 const IMAGES_DIR = path.join(PROJECT_ROOT, 'images');
 const TEMPLATES_DIR = path.join(PROJECT_ROOT, 'templates');
 const TEMP_DIR = path.join(PROJECT_ROOT, 'temp');

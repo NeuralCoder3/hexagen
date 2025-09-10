@@ -37,11 +37,21 @@ app.use(session({
 
 // Resolve backend root that works for both dev (src) and prod (dist/src)
 function resolveBackendRoot(currentDir: string): string {
-  const candidate = path.resolve(currentDir, '..'); // dev: backend/src -> backend; prod: dist/src -> dist
-  const templatesAtCandidate = path.join(candidate, 'templates');
-  if (fs.existsSync(templatesAtCandidate)) return candidate;
-  // Fallback: go one more up (prod): dist/src -> backend
-  return path.resolve(currentDir, '..', '..');
+  // In Docker: currentDir = /app/backend/dist/src, we want /app/backend
+  // In dev: currentDir = /path/to/backend/src, we want /path/to/backend
+  
+  // First try: go up one level (dev: src -> backend; prod: dist/src -> dist)
+  const candidate1 = path.resolve(currentDir, '..');
+  const templatesAtCandidate1 = path.join(candidate1, 'templates');
+  if (fs.existsSync(templatesAtCandidate1)) return candidate1;
+  
+  // Second try: go up two levels (prod: dist/src -> backend)
+  const candidate2 = path.resolve(currentDir, '..', '..');
+  const templatesAtCandidate2 = path.join(candidate2, 'templates');
+  if (fs.existsSync(templatesAtCandidate2)) return candidate2;
+  
+  // Fallback: return the two-levels-up path (should be /app/backend in Docker)
+  return candidate2;
 }
 const BACKEND_ROOT = resolveBackendRoot(__dirname);
 const IMAGES_DIR = path.join(BACKEND_ROOT, 'images');
@@ -92,9 +102,20 @@ function requireAuth(req: express.Request, res: express.Response, next: express.
 const CMS_SECRET = process.env.CMS_SECRET || '';
 const CMS_ENDPOINT = process.env.CMS_ENDPOINT || '';
 const BASEPATH = process.env.BASEPATH || '';
+const DEV_LOGIN = (process.env.DEV_LOGIN === '1') || !CMS_ENDPOINT; // fallback to simple session login when SSO endpoint is not configured
 
 app.get(`${BASEPATH}/login`, (req, res) => {
   console.log(`[auth] GET ${BASEPATH}/login`);
+  // Dev fallback: if no CMS endpoint configured, just mark session as authenticated to avoid redirect loops
+  if (DEV_LOGIN) {
+    req.session.authenticated = true;
+    if (!req.session.username) req.session.username = 'devuser';
+    if (!req.session.realname) req.session.realname = 'Dev User';
+    if (!req.session.email) req.session.email = 'dev@example.com';
+    console.log('[auth] DEV_LOGIN enabled; session authenticated locally');
+    return res.redirect(BASEPATH || '/');
+  }
+
   ensureCsrfToken(req);
   const authToken = crypto.randomBytes(16).toString('base64');
   req.session.auth_token = authToken;
@@ -108,6 +129,15 @@ app.get(`${BASEPATH}/login`, (req, res) => {
 if (BASEPATH) {
   app.get(`/login`, (req, res) => {
     console.log('[auth] GET /login');
+    if (DEV_LOGIN) {
+      req.session.authenticated = true;
+      if (!req.session.username) req.session.username = 'devuser';
+      if (!req.session.realname) req.session.realname = 'Dev User';
+      if (!req.session.email) req.session.email = 'dev@example.com';
+      console.log('[auth] DEV_LOGIN enabled; session authenticated locally');
+      return res.redirect(BASEPATH || '/');
+    }
+
     ensureCsrfToken(req);
     const authToken = crypto.randomBytes(16).toString('base64');
     req.session.auth_token = authToken;
@@ -551,7 +581,7 @@ app.post('/api/generate-tile', requireAuth, async (req, res) => {
     }
     
     // Generate coordinate image for the tile in a permanent location (outside temp dir)
-    permanentImagePath = path.join(__dirname, '../coordinate_images', `coordinate_${xNum}_${yNum}.png`);
+    permanentImagePath = path.join(BACKEND_ROOT, 'coordinate_images', `coordinate_${xNum}_${yNum}.png`);
     
     // Ensure the coordinate_images directory exists
     const coordinateImagesDir = path.dirname(permanentImagePath);
@@ -604,15 +634,15 @@ app.post('/api/generate-tile', requireAuth, async (req, res) => {
       console.log('Mask buffer size:', maskBuffer.length);
 
       // If configured, send mask as base64 data URI via 'maskImage' (required by some providers)
-      if (process.env.USE_MASK_IMAGE_DATA_URI === '1') {
-        const ext = path.extname(maskFilePath).toLowerCase();
-        const mime = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/png';
-        const dataUri = `data:${mime};base64,${maskBuffer.toString('base64')}`;
-        formData.append('maskImage', dataUri);
-      } else {
+      // if (process.env.USE_MASK_IMAGE_DATA_URI === '1') {
+      //   const ext = path.extname(maskFilePath).toLowerCase();
+      //   const mime = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/png';
+      //   const dataUri = `data:${mime};base64,${maskBuffer.toString('base64')}`;
+      //   formData.append('maskImage', dataUri);
+      // } else {
         // Default: send as multipart file field used locally
         formData.append('mask[]', maskBuffer, path.basename(maskFilePath));
-      }
+      // }
     }
     
     // Make API request
@@ -647,7 +677,7 @@ app.post('/api/generate-tile', requireAuth, async (req, res) => {
     const data = response.data;
     
     // Log the response
-    const logPath = path.join(__dirname, '../logs', 'image_generation.log');
+    const logPath = path.join(BACKEND_ROOT, 'logs', 'image_generation.log');
     const logDir = path.dirname(logPath);
     if (!fs.existsSync(logDir)) {
       fs.mkdirSync(logDir, { recursive: true });

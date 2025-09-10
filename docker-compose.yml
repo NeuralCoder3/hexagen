@@ -7,7 +7,7 @@ services:
     image: hexagen-backend:latest
     container_name: hexagen-backend
     ports:
-      - "80:3001"
+      - "3000:3001"
     environment:
       - NODE_ENV=production
       - PORT=3001
@@ -21,6 +21,7 @@ services:
       - ./backend/thumbnails:/app/backend/thumbnails
       - backend-logs:/app/backend/logs
       - ./backend/metadata:/app/backend/metadata
+      - ./backend/coordinate_images:/app/backend/coordinate_images
 
   # Optional separate frontend (enable with: docker compose --profile dev-frontend up)
   frontend:
