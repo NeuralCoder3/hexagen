@@ -235,21 +235,34 @@ app.get('/api/hexagon/:x/:y/can-generate', (req, res) => {
 // Serve frontend build (optional single-port mode)
 if (process.env.SERVE_FRONTEND === '1') {
   const FRONTEND_DIR = path.join(BACKEND_ROOT, 'public');
+  console.log('SERVE_FRONTEND enabled, FRONTEND_DIR:', FRONTEND_DIR);
+  console.log('FRONTEND_DIR exists:', fs.existsSync(FRONTEND_DIR));
+  
   if (fs.existsSync(FRONTEND_DIR)) {
+    console.log('Setting up static file serving from:', FRONTEND_DIR);
     app.use(express.static(FRONTEND_DIR));
+    
     // API is under /api; everything else falls back to index.html
     app.get('*', (req, res, next) => {
+      console.log('Frontend catch-all route hit for:', req.path);
       if (req.path.startsWith('/api') || req.path.startsWith('/images') || req.path.startsWith('/thumbnails') || req.path.startsWith('/templates')) {
+        console.log('API route, passing to next middleware');
         return next();
       }
       const indexPath = path.join(FRONTEND_DIR, 'index.html');
+      console.log('Serving index.html from:', indexPath);
       if (fs.existsSync(indexPath)) {
         res.sendFile(indexPath);
       } else {
+        console.log('index.html not found at:', indexPath);
         res.status(404).send('frontend index not found');
       }
     });
+  } else {
+    console.log('Frontend directory not found:', FRONTEND_DIR);
   }
+} else {
+  console.log('SERVE_FRONTEND not enabled, value:', process.env.SERVE_FRONTEND);
 }
 
 // Hexagon endpoint

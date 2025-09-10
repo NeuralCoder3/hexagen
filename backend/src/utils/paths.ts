@@ -16,18 +16,38 @@ export function resolveBackendRoot(currentDir: string): string {
   // In Docker: currentDir = /app/backend/dist/src or /app/backend/dist/scripts, we want /app/backend
   // In dev: currentDir = /path/to/backend/src or /path/to/backend/scripts, we want /path/to/backend
   
-  // First try: go up one level (dev: src/scripts -> backend; prod: dist/src/scripts -> dist)
-  const candidate1 = path.resolve(currentDir, '..');
-  const templatesAtCandidate1 = path.join(candidate1, 'templates');
-  if (fs.existsSync(templatesAtCandidate1)) return candidate1;
+  console.log('resolveBackendRoot: currentDir =', currentDir);
   
-  // Second try: go up two levels (prod: dist/src/scripts -> backend)
+  // First try: go up three levels (prod: dist/src/utils -> backend)
+  const candidate3 = path.resolve(currentDir, '..', '..', '..');
+  const templatesAtCandidate3 = path.join(candidate3, 'templates');
+  console.log('candidate3 =', candidate3, 'templates exists:', fs.existsSync(templatesAtCandidate3));
+  if (fs.existsSync(templatesAtCandidate3)) {
+    console.log('Using candidate3:', candidate3);
+    return candidate3;
+  }
+  
+  // Second try: go up two levels (prod: dist/src/scripts -> dist)
   const candidate2 = path.resolve(currentDir, '..', '..');
   const templatesAtCandidate2 = path.join(candidate2, 'templates');
-  if (fs.existsSync(templatesAtCandidate2)) return candidate2;
+  console.log('candidate2 =', candidate2, 'templates exists:', fs.existsSync(templatesAtCandidate2));
+  if (fs.existsSync(templatesAtCandidate2)) {
+    console.log('Using candidate2:', candidate2);
+    return candidate2;
+  }
   
-  // Fallback: return the two-levels-up path (should be /app/backend in Docker)
-  return candidate2;
+  // Third try: go up one level (dev: src/scripts -> backend; prod: dist/src/scripts -> dist)
+  const candidate1 = path.resolve(currentDir, '..');
+  const templatesAtCandidate1 = path.join(candidate1, 'templates');
+  console.log('candidate1 =', candidate1, 'templates exists:', fs.existsSync(templatesAtCandidate1));
+  if (fs.existsSync(templatesAtCandidate1)) {
+    console.log('Using candidate1:', candidate1);
+    return candidate1;
+  }
+  
+  // Fallback: return the three-levels-up path (should be /app/backend in Docker)
+  console.log('Using fallback candidate3:', candidate3);
+  return candidate3;
 }
 
 /**

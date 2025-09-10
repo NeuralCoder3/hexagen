@@ -9,3 +9,7 @@ thumbnails/*.*
 *.js.map
 *.d.ts.mapbackend/images/
 backend/images
+backend/metadata
+backend/logs
+compose.yaml
+sync.sh
