@@ -2,6 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
+import session from 'express-session';
+import crypto from 'crypto';
 import { getHeightAt, getBiomeTemplatePath } from './terrain';
 import { generateCoordinateImage } from '../scripts/generateCoordinateImage';
 import { DEFAULT_HEX_SIZE, DEFAULT_CANVAS_SIZE, extractCenterHexagon } from '../scripts/utils/extractCenterHexagon';
@@ -12,6 +14,25 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Trust proxy if behind a reverse proxy (Docker, Nginx, etc.)
+app.set('trust proxy', 1);
+
+// Session setup
+const SESSION_NAME = process.env.SESSION_NAME || 'hexagen_session';
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+app.use(session({
+  name: SESSION_NAME,
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: false, // set true behind TLS/https
+    maxAge: 7 * 24 * 60 * 60 * 1000
+  }
+}));
 
 // Resolve backend root that works for both dev (src) and prod (dist/src)
 function resolveBackendRoot(currentDir: string): string {
@@ -31,13 +52,109 @@ if (!fs.existsSync(METADATA_DIR)) {
 }
 
 // Middleware
-app.use(cors());
+const CORS_ORIGIN = process.env.CORS_ORIGIN || undefined; // undefined -> reflect request origin if using cors()
+app.use(cors({
+  origin: CORS_ORIGIN || true,
+  credentials: true
+}));
 app.use(express.json({ limit: '2mb' }));
 
 // Serve static files from images, thumbnails, and templates directories
 app.use('/images', express.static(IMAGES_DIR));
 app.use('/thumbnails', express.static(THUMBNAILS_DIR));
 app.use('/templates', express.static(TEMPLATES_DIR));
+
+// Simple auth helpers
+declare module 'express-session' {
+  interface SessionData {
+    authenticated?: boolean;
+    realname?: string;
+    username?: string;
+    email?: string;
+    csrf_token?: string;
+    auth_token?: string;
+  }
+}
+
+function ensureCsrfToken(req: express.Request) {
+  if (!req.session.csrf_token) {
+    req.session.csrf_token = crypto.randomBytes(16).toString('base64');
+  }
+}
+
+function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  if (req.session.authenticated) return next();
+  return res.status(401).json({ error: 'Unauthorized' });
+}
+
+// CMS-like SSO endpoints (simplified)
+const CMS_SECRET = process.env.CMS_SECRET || '';
+const CMS_ENDPOINT = process.env.CMS_ENDPOINT || '';
+const BASEPATH = process.env.BASEPATH || '';
+
+app.get(`${BASEPATH}/login`, (req, res) => {
+  console.log(`[auth] GET ${BASEPATH}/login`);
+  ensureCsrfToken(req);
+  const authToken = crypto.randomBytes(16).toString('base64');
+  req.session.auth_token = authToken;
+  const nonce = Buffer.from(`${authToken}|${Math.floor(Date.now()/1000) + 16*60}`).toString('base64');
+  const payload = Buffer.from(`nonce=${encodeURIComponent(nonce)}`).toString('base64');
+  const sig = crypto.createHmac('sha256', CMS_SECRET).update(payload).digest('hex');
+  const url = `${CMS_ENDPOINT}?sso=${encodeURIComponent(payload)}&sig=${encodeURIComponent(sig)}`;
+  res.redirect(url);
+});
+// Also provide non-BASEPATH login for convenience
+if (BASEPATH) {
+  app.get(`/login`, (req, res) => {
+    console.log('[auth] GET /login');
+    ensureCsrfToken(req);
+    const authToken = crypto.randomBytes(16).toString('base64');
+    req.session.auth_token = authToken;
+    const nonce = Buffer.from(`${authToken}|${Math.floor(Date.now()/1000) + 16*60}`).toString('base64');
+    const payload = Buffer.from(`nonce=${encodeURIComponent(nonce)}`).toString('base64');
+    const sig = crypto.createHmac('sha256', CMS_SECRET).update(payload).digest('hex');
+    const url = `${CMS_ENDPOINT}?sso=${encodeURIComponent(payload)}&sig=${encodeURIComponent(sig)}`;
+    res.redirect(url);
+  });
+}
+
+const handleAuthCallback: express.RequestHandler = (req, res) => {
+  console.log('[auth] Auth callback hit', req.query);
+  const sso = req.query.sso as string;
+  const sig = req.query.sig as string;
+  if (!sso || !sig) return res.status(400).send('Invalid request');
+  const expected = crypto.createHmac('sha256', CMS_SECRET).update(sso).digest('hex');
+  if (sig !== expected) return res.status(400).send('Invalid signature');
+  const decoded = Buffer.from(sso, 'base64').toString('utf8');
+  const parts = decoded.split('&').map(kv => kv.split('='));
+  const map: Record<string, string> = {};
+  for (const [k, v] of parts) map[k] = decodeURIComponent(v);
+  const [authToken, expiryStr] = Buffer.from(map['nonce'] || '', 'base64').toString('utf8').split('|');
+  const expiry = parseInt(expiryStr || '0', 10);
+  if (!req.session.auth_token || req.session.auth_token !== authToken) return res.status(400).send('Invalid auth token');
+  if (Math.floor(Date.now()/1000) > expiry) return res.status(400).send('Token expired');
+  req.session.authenticated = true;
+  req.session.realname = map['name'];
+  req.session.username = map['username'];
+  req.session.email = map['email'];
+  console.log(`[auth] User logged in: username=${req.session.username || ''} email=${req.session.email || ''} at ${new Date().toISOString()} from ip=${req.ip}`);
+  res.redirect(BASEPATH || '/');
+};
+
+app.get(`${BASEPATH}/auth_cb`, handleAuthCallback);
+// Also provide non-BASEPATH callback route
+if (BASEPATH) {
+  app.get('/auth_cb', handleAuthCallback);
+}
+
+app.post(`${BASEPATH}/logout`, (req, res) => {
+  req.session.destroy(() => res.json({ ok: true }));
+});
+
+// Auth status endpoint
+app.get('/api/auth/status', (req, res) => {
+  res.json({ authenticated: !!req.session?.authenticated });
+});
 
 // Serve frontend build (optional single-port mode)
 if (process.env.SERVE_FRONTEND === '1') {
@@ -352,7 +469,7 @@ app.post('/api/crop-hexagons', async (req, res) => {
 });
 
 // Generate image for a tile endpoint
-app.post('/api/generate-tile', async (req, res) => {
+app.post('/api/generate-tile', requireAuth, async (req, res) => {
   // Declare variables at function scope for cleanup
   let permanentImagePath: string | null = null;
   let jpgImagePath: string | null = null;

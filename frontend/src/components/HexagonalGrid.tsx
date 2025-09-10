@@ -26,6 +26,15 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
   const [generatePrompt, setGeneratePrompt] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [metadata, setMetadata] = useState<{ prompt?: string; createdAt?: string } | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [showLoginCta, setShowLoginCta] = useState(false);
+
+  useEffect(() => {
+    // Preload auth status (once)
+    if (isAuthenticated === null) {
+      fetch('/api/auth/status', { credentials: 'include' }).then(r => r.json()).then(j => setIsAuthenticated(!!j.authenticated)).catch(() => setIsAuthenticated(false));
+    }
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (thumbnailSrc) {
@@ -39,7 +48,7 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
   useEffect(() => {
     if (showFullImage) {
       // Fetch metadata when opening the popup
-      fetch(`/api/hexagon/${x}/${y}/metadata`)
+      fetch(`/api/hexagon/${x}/${y}/metadata`, { credentials: 'include' })
         .then(async (r) => (r.ok ? r.json() : null))
         .then((json) => setMetadata(json))
         .catch(() => setMetadata(null));
@@ -53,12 +62,12 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
     if (!isDragging) {
       try {
         // First check if tile exists
-        const checkResponse = await fetch(`/api/hexagon/${x}/${y}?checkExists=true`);
+        const checkResponse = await fetch(`/api/hexagon/${x}/${y}?checkExists=true`, { credentials: 'include' });
         const checkData = await checkResponse.json();
         
         if (checkData.exists) {
           // Tile exists, fetch full image for popup
-          const response = await fetch(`/api/hexagon/${x}/${y}?thumbnail=false`);
+          const response = await fetch(`/api/hexagon/${x}/${y}?thumbnail=false`, { credentials: 'include' });
           if (response.ok) {
             const blob = await response.blob();
             const url = URL.createObjectURL(blob);
@@ -66,8 +75,14 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
             setShowFullImage(true);
           }
         } else {
-          // Tile doesn't exist, show generation form
-          setShowGenerateForm(true);
+          // Tile doesn't exist, show generation form or login CTA
+          if (isAuthenticated) {
+            setShowGenerateForm(true);
+          } else {
+            setShowGenerateForm(false);
+            setShowFullImage(false);
+            setShowLoginCta(true);
+          }
         }
       } catch (error) {
         console.error('Error checking/fetching hexagon:', error);
@@ -85,6 +100,7 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
         headers: {
           'Content-Type': 'application/json',
         },
+        credentials: 'include',
         body: JSON.stringify({
           x: x,
           y: y,
@@ -93,6 +109,11 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
       });
 
       const data = await response.json();
+      
+      if (response.status === 401) {
+        window.location.href = '/login';
+        return;
+      }
       
       if (response.ok) {
         // Success - refresh the image
@@ -243,6 +264,28 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
                     {isGenerating ? 'Generating...' : 'Generate Tile'}
                   </button>
                   <button onClick={closeGenerateForm} className="cancel-button">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ),
+        document.body
+      )}
+
+      {/* Login CTA Modal */}
+      {showLoginCta && createPortal(
+        (
+          <div className="image-modal-overlay" onClick={() => setShowLoginCta(false)}>
+            <div className="image-modal-content" onClick={(e) => e.stopPropagation()}>
+              <button className="modal-close" onClick={() => setShowLoginCta(false)}>×</button>
+              <div className="generate-form">
+                <h3>Sign in required</h3>
+                <p>You need to be signed in the CMS to generate a new tile at ({x}, {y}).</p>
+                <div className="generate-buttons">
+                  <a href="/login" className="generate-button">Log in</a>
+                  <button onClick={() => setShowLoginCta(false)} className="cancel-button">
                     Cancel
                   </button>
                 </div>
