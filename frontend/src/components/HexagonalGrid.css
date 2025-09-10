@@ -99,34 +99,6 @@
   }
 }
 
-.hexagon-coords {
-  position: absolute;
-  bottom: -20px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 10px;
-  color: #888;
-  background: rgba(0, 0, 0, 0.7);
-  padding: 2px 6px;
-  border-radius: 4px;
-  white-space: nowrap;
-  pointer-events: none;
-  /* Disable text selection and dragging */
-  user-select: none;
-  -webkit-user-drag: none;
-  -khtml-user-drag: none;
-  -moz-user-drag: none;
-  -o-user-drag: none;
-  user-drag: none;
-  /* Initially hidden */
-  opacity: 0;
-  transition: opacity 0.2s ease;
-}
-
-.hexagon-container:hover .hexagon-coords {
-  opacity: 1;
-}
-
 .controls {
   position: absolute;
   top: 20px;
@@ -184,6 +156,50 @@
 
 .reset-button:hover {
   background: #777;
+}
+
+.current-coords {
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid #555;
+}
+
+.current-coords h4 {
+  color: white;
+  font-size: 14px;
+  margin: 0 0 10px 0;
+  text-align: center;
+}
+
+.coords-display {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #333;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #555;
+}
+
+.coord-label {
+  color: #aaa;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.coord-value {
+  color: #00ff00;
+  font-size: 14px;
+  font-weight: bold;
+  font-family: monospace;
+}
+
+.no-hover {
+  color: #666;
+  font-size: 12px;
+  font-style: italic;
+  text-align: center;
+  width: 100%;
 }
 
 .jump-controls {

@@ -15,9 +15,11 @@ interface HexagonProps {
   onTileGenerated?: (x: number, y: number) => void;
   isCenter?: boolean;
   isAuthenticated?: boolean;
+  onMouseEnter?: (x: number, y: number) => void;
+  onMouseLeave?: () => void;
 }
 
-const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGenerated, isCenter = false, isAuthenticated = false }) => {
+const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGenerated, isCenter = false, isAuthenticated = false, onMouseEnter, onMouseLeave }) => {
   const [imageUrl, setImageUrl] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [showFullImage, setShowFullImage] = useState(false);
@@ -269,6 +271,8 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
+        onMouseEnter={() => onMouseEnter?.(x, y)}
+        onMouseLeave={() => onMouseLeave?.()}
       >
         {loading ? (
           <div className="hexagon-placeholder">
@@ -285,9 +289,6 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
             }}
           />
         )}
-        <div className="hexagon-coords">
-          {x}, {y}
-        </div>
       </div>
 
       {/* Full Image Modal rendered in portal so it is not affected by grid transforms */}
@@ -443,6 +444,9 @@ const HexagonalGrid: React.FC = () => {
   
   // Flag to prevent URL updates during initial navigation - set to true initially
   const [isInitialNavigation, setIsInitialNavigation] = useState<boolean>(true);
+  
+  // Track hovered hexagon coordinates
+  const [hoveredHexagon, setHoveredHexagon] = useState<{ x: number; y: number } | null>(null);
   
   // Auth status for all hexagons (shared across all hexagon components)
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
@@ -900,6 +904,8 @@ const HexagonalGrid: React.FC = () => {
               onTileGenerated={handleTileGenerated}
               isCenter={x === centerHexagon.x && y === centerHexagon.y}
               isAuthenticated={isAuthenticated || false}
+              onMouseEnter={(x, y) => setHoveredHexagon({ x, y })}
+              onMouseLeave={() => setHoveredHexagon(null)}
             />
           ))}
         </div>
@@ -940,6 +946,22 @@ const HexagonalGrid: React.FC = () => {
         >
           Reset View
         </button>
+        
+        <div className="current-coords">
+          <h4>Hovered Position</h4>
+          <div className="coords-display">
+            {hoveredHexagon ? (
+              <>
+                <span className="coord-label">X:</span>
+                <span className="coord-value">{hoveredHexagon.x}</span>
+                <span className="coord-label">Y:</span>
+                <span className="coord-value">{hoveredHexagon.y}</span>
+              </>
+            ) : (
+              <span className="no-hover">Hover over a hexagon</span>
+            )}
+          </div>
+        </div>
         
         <div className="jump-controls">
           <h4>Jump to Coordinate</h4>
