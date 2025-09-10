@@ -25,9 +25,11 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
   const [showGenerateForm, setShowGenerateForm] = useState(false);
   const [generatePrompt, setGeneratePrompt] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState(false);
-  const [metadata, setMetadata] = useState<{ prompt?: string; createdAt?: string } | null>(null);
+  const [metadata, setMetadata] = useState<{ prompt?: string; createdAt?: string; username?: string | null } | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [showLoginCta, setShowLoginCta] = useState(false);
+  const [canGenerateHere, setCanGenerateHere] = useState<boolean | null>(null);
+  const [cannotReason, setCannotReason] = useState<string>('');
 
   useEffect(() => {
     // Preload auth status (once)
@@ -77,7 +79,24 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
         } else {
           // Tile doesn't exist, show generation form or login CTA
           if (isAuthenticated) {
-            setShowGenerateForm(true);
+            // Check if generation is allowed at this coordinate
+            try {
+              const canRes = await fetch(`/api/hexagon/${x}/${y}/can-generate`, { credentials: 'include' });
+              const canJson = await canRes.json();
+              setShowGenerateForm(true);
+              if (canRes.ok && canJson.allowed) {
+                setCanGenerateHere(true);
+                setCannotReason('');
+              } else {
+                const reason = canJson?.reason || 'Tile cannot be generated here yet.';
+                setCanGenerateHere(false);
+                setCannotReason(reason);
+              }
+            } catch (e) {
+              setShowGenerateForm(true);
+              setCanGenerateHere(false);
+              setCannotReason('Unable to check whether tile can be generated.');
+            }
           } else {
             setShowGenerateForm(false);
             setShowFullImage(false);
@@ -122,7 +141,11 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
         // Notify parent component to refresh this tile
         onTileGenerated?.(x, y);
       } else {
-        alert(`Error: ${data.error}`);
+        if (response.status === 403) {
+          alert('Tile generation is only allowed adjacent (or one apart) to an existing tile.');
+        } else {
+          alert(`Error: ${data.error}`);
+        }
       }
     } catch (error) {
       console.error('Error generating tile:', error);
@@ -168,6 +191,8 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
   const closeGenerateForm = () => {
     setShowGenerateForm(false);
     setGeneratePrompt('');
+    setCanGenerateHere(null);
+    setCannotReason('');
   };
 
   // Calculate hexagon position (centered on 0,0) - adjusted spacing
@@ -231,6 +256,9 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
                   {metadata.createdAt && (
                     <div><strong>Created:</strong> {new Date(metadata.createdAt).toLocaleString()}</div>
                   )}
+                  {typeof metadata.username !== 'undefined' && metadata.username !== null && (
+                    <div><strong>By:</strong> {metadata.username}</div>
+                  )}
                 </div>
               )}
             </div>
@@ -247,25 +275,37 @@ const Hexagon: React.FC<HexagonProps> = ({ x, y, size, thumbnailSrc, onTileGener
               <button className="modal-close" onClick={closeGenerateForm}>×</button>
               <div className="generate-form">
                 <h3>Generate Tile at ({x}, {y})</h3>
-                <p>This tile doesn't exist yet. Enter a prompt to generate it:</p>
-                <textarea
-                  value={generatePrompt}
-                  onChange={(e) => setGeneratePrompt(e.target.value)}
-                  placeholder="Describe what you want to see in this tile..."
-                  className="generate-prompt"
-                  rows={4}
-                />
+                {canGenerateHere === false ? (
+                  <p>{cannotReason}</p>
+                ) : (
+                  <>
+                    <p>This tile doesn't exist yet. Enter a prompt to generate it:</p>
+                    <textarea
+                      value={generatePrompt}
+                      onChange={(e) => setGeneratePrompt(e.target.value)}
+                      placeholder="Describe what you want to see in this tile..."
+                      className="generate-prompt"
+                      rows={4}
+                    />
+                  </>
+                )}
                 <div className="generate-buttons">
-                  <button 
-                    onClick={handleGenerateTile}
-                    disabled={!generatePrompt.trim() || isGenerating}
-                    className="generate-button"
-                  >
-                    {isGenerating ? 'Generating...' : 'Generate Tile'}
-                  </button>
-                  <button onClick={closeGenerateForm} className="cancel-button">
-                    Cancel
-                  </button>
+                  {canGenerateHere === false ? (
+                    <button onClick={closeGenerateForm} className="cancel-button">Close</button>
+                  ) : (
+                    <>
+                      <button 
+                        onClick={handleGenerateTile}
+                        disabled={!generatePrompt.trim() || isGenerating}
+                        className="generate-button"
+                      >
+                        {isGenerating ? 'Generating...' : 'Generate Tile'}
+                      </button>
+                      <button onClick={closeGenerateForm} className="cancel-button">
+                        Cancel
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>

@@ -8,6 +8,7 @@ import { getHeightAt, getBiomeTemplatePath } from './terrain';
 import { generateCoordinateImage } from '../scripts/generateCoordinateImage';
 import { DEFAULT_HEX_SIZE, DEFAULT_CANVAS_SIZE, extractCenterHexagon } from '../scripts/utils/extractCenterHexagon';
 import dotenv from 'dotenv';
+import { getHexagonNeighbors, getNeighborsWithinRadiusTwo } from '../scripts/utils/hexGrid';
 
 // Load environment variables
 dotenv.config();
@@ -154,6 +155,37 @@ app.post(`${BASEPATH}/logout`, (req, res) => {
 // Auth status endpoint
 app.get('/api/auth/status', (req, res) => {
   res.json({ authenticated: !!req.session?.authenticated });
+});
+
+// Check if tile can be generated here (adjacency rule)
+app.get('/api/hexagon/:x/:y/can-generate', (req, res) => {
+  const xNum = parseInt(req.params.x as string);
+  const yNum = parseInt(req.params.y as string);
+  if (Number.isNaN(xNum) || Number.isNaN(yNum)) {
+    return res.status(400).json({ allowed: false, reason: 'Invalid coordinates' });
+  }
+  // Already exists? Then no need to generate
+  const jpg = path.join(IMAGES_DIR, `${xNum}_${yNum}.jpg`);
+  const png = path.join(IMAGES_DIR, `${xNum}_${yNum}.png`);
+  const svg = path.join(IMAGES_DIR, `${xNum}_${yNum}.svg`);
+  if (fs.existsSync(jpg) || fs.existsSync(png) || fs.existsSync(svg)) {
+    return res.json({ allowed: false, reason: 'Tile already exists' });
+  }
+  const neighbors = getNeighborsWithinRadiusTwo(xNum, yNum);
+  let hasNeighbor = false;
+  for (const n of neighbors) {
+    const nJpg = path.join(IMAGES_DIR, `${n.x}_${n.y}.jpg`);
+    const nPng = path.join(IMAGES_DIR, `${n.x}_${n.y}.png`);
+    const nSvg = path.join(IMAGES_DIR, `${n.x}_${n.y}.svg`);
+    if (fs.existsSync(nJpg) || fs.existsSync(nPng) || fs.existsSync(nSvg)) {
+      hasNeighbor = true;
+      break;
+    }
+  }
+  if (!hasNeighbor) {
+    return res.json({ allowed: false, reason: 'Tile generation is only allowed adjacent (or one apart) to an existing tile.' });
+  }
+  return res.json({ allowed: true });
 });
 
 // Serve frontend build (optional single-port mode)
@@ -491,6 +523,22 @@ app.post('/api/generate-tile', requireAuth, async (req, res) => {
     if (isNaN(xNum) || isNaN(yNum)) {
       return res.status(400).json({ error: 'Invalid coordinates' });
     }
+
+    // Enforce adjacency rule: at least one existing filled tile within radius 2
+    const neighbors = getNeighborsWithinRadiusTwo(xNum, yNum);
+    let hasNeighbor = false;
+    for (const n of neighbors) {
+      const jpg = path.join(IMAGES_DIR, `${n.x}_${n.y}.jpg`);
+      const png = path.join(IMAGES_DIR, `${n.x}_${n.y}.png`);
+      const svg = path.join(IMAGES_DIR, `${n.x}_${n.y}.svg`);
+      if (fs.existsSync(jpg) || fs.existsSync(png) || fs.existsSync(svg)) {
+        hasNeighbor = true;
+        break;
+      }
+    }
+    if (!hasNeighbor) {
+      return res.status(403).json({ error: 'Tile generation is only allowed adjacent (or one apart) to an existing tile.' });
+    }
     
     // Check if tile already exists
     const imagesDir = IMAGES_DIR;
@@ -647,7 +695,8 @@ app.post('/api/generate-tile', requireAuth, async (req, res) => {
           x: xNum,
           y: yNum,
           prompt,
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
+          username: req.session?.username || null
         };
         const metaPath = path.join(METADATA_DIR, `${xNum}_${yNum}.json`);
         fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));

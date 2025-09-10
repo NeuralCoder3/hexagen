@@ -9,6 +9,7 @@ const execAsync = promisify(exec);
 import { getHeightAt, getBiomeTemplatePath } from '../src/terrain';
 import { HexagonCropper } from './cropHexagons';
 import { extractCenterHexagon, DEFAULT_HEX_SIZE, DEFAULT_CANVAS_SIZE } from './utils/extractCenterHexagon';
+import { getHexagonNeighbors } from './utils/hexGrid';
 
 const hexSize = DEFAULT_HEX_SIZE; // Base hexagon size (matches frontend baseHexSize)
 const canvasSize = DEFAULT_CANVAS_SIZE;
@@ -48,28 +49,6 @@ function getHexagonPosition(x: number, y: number, size: number = 100): { x: numb
   const hexX = x * size * 1.0;
   const hexY = y * size * Math.sqrt(3) * 1.36 + (x % 2) * size * Math.sqrt(3) * 0.680;
   return { x: hexX, y: hexY };
-}
-
-// Get the 6 neighbors of a hexagon (correct hexagonal grid neighbors)
-function getHexagonNeighbors(x: number, y: number): Array<{ x: number; y: number }> {
-  const neighbors: Array<{ x: number; y: number }> = [];
-  neighbors.push({ x: x-2, y: y });     // east
-  neighbors.push({ x: x+2, y: y });     // west
-  
-  // Hexagonal grid neighbors - proper hex grid layout
-  if (x % 2 == 0) {
-    neighbors.push({ x: x - 1, y: y - 1 });
-    neighbors.push({ x: x + 1, y: y - 1 });
-    neighbors.push({ x: x - 1, y: y });
-    neighbors.push({ x: x + 1, y: y });
-  } else {
-    neighbors.push({ x: x - 1, y: y + 0 });
-    neighbors.push({ x: x + 1, y: y + 0 });
-    neighbors.push({ x: x - 1, y: y + 1 });
-    neighbors.push({ x: x + 1, y: y + 1 });
-  }
-  
-  return neighbors;
 }
 
 // Generate coordinate image
