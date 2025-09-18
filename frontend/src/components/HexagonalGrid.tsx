@@ -432,6 +432,106 @@ const HexagonalGrid: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const baseHexSize = 30;
 
+  // Pointer/pinch tracking
+  const activePointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const gestureStartPanRef = useRef<Position>({ x: 0, y: 0 });
+  const gestureStartZoomRef = useRef<number>(1);
+  const isPinchingRef = useRef<boolean>(false);
+  const pinchStartDistanceRef = useRef<number>(0);
+  const pinchStartCenterRef = useRef<Position>({ x: 0, y: 0 });
+
+  const getDistance = (a: Position, b: Position) => {
+    const dx = a.x - b.x;
+    const dy = a.y - b.y;
+    return Math.hypot(dx, dy);
+  };
+
+  const getCenter = (a: Position, b: Position) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+
+  const toLocalPoint = (clientX: number, clientY: number) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    return rect ? { x: clientX - rect.left, y: clientY - rect.top } : { x: clientX, y: clientY };
+  };
+
+  const onPointerDown = useCallback((e: React.PointerEvent) => {
+    // Ensure this element receives subsequent pointer events
+    (e.target as Element).setPointerCapture?.(e.pointerId);
+    const p = toLocalPoint(e.clientX, e.clientY);
+    activePointersRef.current.set(e.pointerId, p);
+
+    if (activePointersRef.current.size === 1) {
+      // Start pan gesture
+      setIsDragging(true);
+      setDragStart({ x: e.clientX, y: e.clientY });
+      setPanStart(pan);
+      gestureStartPanRef.current = pan;
+      isPinchingRef.current = false;
+    } else if (activePointersRef.current.size === 2) {
+      // Start pinch
+      const [p1, p2] = Array.from(activePointersRef.current.values());
+      pinchStartDistanceRef.current = getDistance(p1, p2);
+      pinchStartCenterRef.current = getCenter(p1, p2);
+      gestureStartZoomRef.current = zoom;
+      gestureStartPanRef.current = pan;
+      isPinchingRef.current = true;
+      setIsDragging(true);
+    }
+  }, [pan, zoom]);
+
+  const onPointerMove = useCallback((e: React.PointerEvent) => {
+    if (!activePointersRef.current.has(e.pointerId)) return;
+    const p = toLocalPoint(e.clientX, e.clientY);
+    activePointersRef.current.set(e.pointerId, p);
+
+    if (isPinchingRef.current && activePointersRef.current.size >= 2) {
+      const [a, b] = Array.from(activePointersRef.current.values());
+      const currentDistance = getDistance(a, b);
+      if (currentDistance === 0 || pinchStartDistanceRef.current === 0) return;
+      const scale = currentDistance / pinchStartDistanceRef.current;
+
+      const newZoom = Math.max(0.4, Math.min(5, gestureStartZoomRef.current * scale));
+
+      // Keep the pinch center stable under fingers
+      const center = getCenter(a, b);
+      const zoomPointX = (center.x - gestureStartPanRef.current.x) / gestureStartZoomRef.current;
+      const zoomPointY = (center.y - gestureStartPanRef.current.y) / gestureStartZoomRef.current;
+      const newPanX = center.x - zoomPointX * newZoom;
+      const newPanY = center.y - zoomPointY * newZoom;
+
+      setZoom(newZoom);
+      setPan({ x: newPanX, y: newPanY });
+    } else if (activePointersRef.current.size === 1 && isDragging) {
+      // Single-pointer pan
+      const deltaX = e.clientX - dragStart.x;
+      const deltaY = e.clientY - dragStart.y;
+      setPan({ x: panStart.x + deltaX, y: panStart.y + deltaY });
+    }
+  }, [isDragging, dragStart, panStart]);
+
+  const endPointer = useCallback((pointerId: number) => {
+    activePointersRef.current.delete(pointerId);
+    if (activePointersRef.current.size < 2) {
+      isPinchingRef.current = false;
+      // When pinch ends, keep dragging state only if one pointer remains pressed
+      if (activePointersRef.current.size === 0) {
+        setIsDragging(false);
+      } else {
+        // Reset baseline for continued pan with remaining pointer
+        const remaining = Array.from(activePointersRef.current.values())[0];
+        setDragStart({ x: remaining.x, y: remaining.y });
+        setPanStart(pan);
+      }
+    }
+  }, [pan]);
+
+  const onPointerUp = useCallback((e: React.PointerEvent) => {
+    endPointer(e.pointerId);
+  }, [endPointer]);
+
+  const onPointerCancel = useCallback((e: React.PointerEvent) => {
+    endPointer(e.pointerId);
+  }, [endPointer]);
+
   // Cache for thumbnails: key is `${x}_${y}`, value is object URL or data URL
   const [thumbnailCache] = useState<Map<string, string>>(() => new Map());
   
@@ -883,6 +983,10 @@ const HexagonalGrid: React.FC = () => {
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
         style={{
           cursor: isDragging ? 'grabbing' : 'grab',
         }}

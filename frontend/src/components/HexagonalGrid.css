@@ -12,6 +12,8 @@
   height: 100%;
   position: relative;
   overflow: hidden;
+  /* Enable custom gesture handling */
+  touch-action: none;
 }
 
 .grid-content {
@@ -261,14 +263,80 @@
     top: 10px;
     right: 10px;
     padding: 10px;
+    gap: 8px;
   }
   
-  .zoom-controls button,
-  .pan-controls button,
-  .reset-button {
+  /* Hide non-essential sections on mobile */
+  .controls .pan-controls,
+  .controls .reset-button,
+  .controls .current-coords,
+  .controls .jump-controls h4 {
+    display: none !important;
+  }
+
+  /* Show only zoom percentage */
+  .controls .zoom-controls button {
+    display: none !important;
+  }
+  .controls .zoom-controls span {
+    min-width: auto;
+    font-size: 12px;
+    padding: 2px 6px;
+    background: #333;
+    border-radius: 4px;
+  }
+
+  /* Make jump controls compact in a single row */
+  .controls .jump-inputs {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+  }
+  .controls .jump-input {
+    width: 64px;
+    font-size: 12px;
+    padding: 4px 6px;
+  }
+  .controls .jump-button {
     padding: 6px 10px;
     font-size: 12px;
   }
+}
+
+/* Apply compact controls on coarse pointer devices (most touchscreens) */
+@media (pointer: coarse) {
+  .controls {
+    top: 10px;
+    right: 10px;
+    padding: 10px;
+    gap: 8px;
+  }
+  .controls .pan-controls,
+  .controls .reset-button,
+  .controls .current-coords,
+  .controls .jump-controls h4 {
+    display: none !important;
+  }
+  .controls .zoom-controls button { display: none !important; }
+  .controls .zoom-controls span {
+    min-width: auto;
+    font-size: 12px;
+    padding: 2px 6px;
+    background: #333;
+    border-radius: 4px;
+  }
+  .controls .jump-inputs { flex-direction: row; align-items: center; gap: 6px; }
+  .controls .jump-input { width: 64px; font-size: 12px; padding: 4px 6px; }
+  .controls .jump-button { padding: 6px 10px; font-size: 12px; }
+}
+
+/* Tablet breakpoint as fallback */
+@media (max-width: 1024px) {
+  .controls {
+    padding: 12px;
+    gap: 8px;
+  }
+  .controls .current-coords { display: none; }
 }
 
 /* Modal styles */
